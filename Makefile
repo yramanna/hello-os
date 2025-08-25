@@ -1,5 +1,12 @@
 kernel := build/hello-os
-iso := build/hello.iso
+prebuilt_iso := grub-prebuilt.iso
+#prebuilt_iso :=
+
+ifneq ($(prebuilt_iso),)
+iso := $(prebuilt_iso)
+else
+iso := build/grub.iso
+endif
 
 grub_cfg := boot/grub.cfg
 
@@ -13,21 +20,28 @@ clean:
 
 .PHONY: run
 run: $(iso)
-	qemu-system-x86_64 -cdrom $(iso) -vga std -s -serial file:serial.log
+	qemu-system-x86_64 -vga std -s -serial file:serial.log \
+		-boot d \
+		-cdrom $(iso) \
+		-drive file=fat:rw:$(PWD)/build,format=raw,media=disk
 
 .PHONY: run-nox
 run-nox: $(iso)
-	qemu-system-x86_64 -cdrom $(iso) -nographic -s
+	qemu-system-x86_64 -nographic -s \
+		-boot d \
+		-cdrom $(iso) \
+		-drive file=fat:rw:$(PWD)/build,format=raw,media=disk
 
 .PHONY: iso
 iso: $(iso)
 
-$(iso): $(kernel) $(grub_cfg)
+ifeq ($(prebuilt_iso),)
+$(iso): $(grub_cfg)
 	@mkdir -p build/isofiles/boot/grub
-	cp $(kernel) build/isofiles/boot/kernel.bin
 	cp $(grub_cfg) build/isofiles/boot/grub
-	grub-mkrescue -o $(iso) build/isofiles #2> /dev/null
+	grub-mkrescue --compress=xz -o $(iso) build/isofiles
 	@rm -r build/isofiles
+endif
 
 .PHONY: kernel
 kernel: $(kernel)
