@@ -19,14 +19,14 @@ clean:
 	cargo clean
 
 .PHONY: run
-run: $(iso)
+run: $(iso) $(kernel)
 	qemu-system-x86_64 -vga std -s -serial file:serial.log \
 		-boot d \
 		-cdrom $(iso) \
 		-drive file=fat:rw:$(PWD)/build,format=raw,media=disk
 
 .PHONY: run-nox
-run-nox: $(iso)
+run-nox: $(iso) $(kernel)
 	qemu-system-x86_64 -nographic -s \
 		-boot d \
 		-cdrom $(iso) \
