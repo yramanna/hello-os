@@ -1,9 +1,9 @@
 #[macro_use]
 mod serial;
-mod vga; 
+mod vga;
 
-use crate::console::vga::WRITER;
 use crate::console::serial::SERIAL1;
+use crate::console::vga::WRITER;
 
 #[macro_export]
 macro_rules! print {
@@ -20,5 +20,5 @@ macro_rules! println {
 pub fn _print(args: core::fmt::Arguments) {
     use core::fmt::Write;
     WRITER.lock().write_fmt(args).unwrap();
-    SERIAL1.lock().write_fmt(args).unwrap(); 
+    SERIAL1.lock().write_fmt(args).unwrap();
 }
