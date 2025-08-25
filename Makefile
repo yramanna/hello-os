@@ -2,12 +2,15 @@ kernel := build/hello-os
 prebuilt_iso := grub-prebuilt.iso
 #prebuilt_iso :=
 
+iso ?= build/hello-os.iso
+
 ifneq ($(prebuilt_iso),)
-iso := $(prebuilt_iso)
+stub_iso ?= $(prebuilt_iso)
 else
-iso := build/grub.iso
+stub_iso ?= build/grub.iso
 endif
 
+grub_stub_cfg := boot/grub.stub.cfg
 grub_cfg := boot/grub.cfg
 
 .PHONY: all
@@ -19,26 +22,30 @@ clean:
 	cargo clean
 
 .PHONY: run
-run: $(iso) $(kernel)
-	qemu-system-x86_64 -vga std -s -serial file:serial.log \
-		-boot d \
-		-cdrom $(iso) \
-		-drive file=fat:rw:$(PWD)/build,format=raw,media=disk
+run: $(stub_iso) $(kernel)
+	ISO=$(iso) STUB_ISO=$(stub_iso) ./qemu.sh
 
 .PHONY: run-nox
-run-nox: $(iso) $(kernel)
-	qemu-system-x86_64 -nographic -s \
-		-boot d \
-		-cdrom $(iso) \
-		-drive file=fat:rw:$(PWD)/build,format=raw,media=disk
+run-nox: $(stub_iso) $(kernel)
+	ISO=$(iso) STUB_ISO=$(stub_iso) ./qemu.sh -nographic
 
 .PHONY: iso
 iso: $(iso)
 
-ifeq ($(prebuilt_iso),)
-$(iso): $(grub_cfg)
+$(iso): $(grub_cfg) $(kernel)
 	@mkdir -p build/isofiles/boot/grub
 	cp $(grub_cfg) build/isofiles/boot/grub
+	cp $(kernel) build/isofiles/boot/kernel.bin
+	grub-mkrescue --compress=xz -o $(iso) build/isofiles
+	@rm -r build/isofiles
+
+.PHONY: stub-iso
+stub-iso: $(stub_iso)
+
+ifeq ($(prebuilt_iso),)
+$(stub_iso): $(grub_stub_cfg)
+	@mkdir -p build/isofiles/boot/grub
+	cp $(grub_stub_cfg) build/isofiles/boot/grub
 	grub-mkrescue --compress=xz -o $(iso) build/isofiles
 	@rm -r build/isofiles
 endif
