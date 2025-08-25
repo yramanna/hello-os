@@ -29,7 +29,7 @@
       ];
     };
 
-    pkgs = makeNixpkgs "x86_64-linux";
+    pkgs = makeNixpkgs system;
     x86Pkgs = makeNixpkgs "x86_64-linux";
     x86Tools = pkgs.pkgsCross.gnu64;
 
