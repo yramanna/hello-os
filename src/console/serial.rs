@@ -1,8 +1,11 @@
+use core::fmt::Write;
+
+use lazy_static::lazy_static;
+use x86::io::{outb, inb};
+
 pub struct SerialPort {
     base_port: u16
 }
-
-use x86::io::{outb, inb};
 
 impl SerialPort {
     pub const unsafe fn new(base_port: u16) -> SerialPort {
@@ -49,8 +52,6 @@ impl SerialPort {
         }
     }
 }
-
-use core::fmt::{Write};
 
 impl Write for SerialPort {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
