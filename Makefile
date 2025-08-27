@@ -29,6 +29,14 @@ run: $(stub_iso) $(kernel)
 run-nox: $(stub_iso) $(kernel)
 	ISO=$(iso) STUB_ISO=$(stub_iso) ./qemu.sh -nographic
 
+.PHONY: run-gdb
+run-gdb: $(stub_iso) $(kernel)
+	ISO=$(iso) STUB_ISO=$(stub_iso) ./qemu.sh -S
+
+.PHONY: run-nox-gdb
+run-nox-gdb: $(stub_iso) $(kernel)
+	ISO=$(iso) STUB_ISO=$(stub_iso) ./qemu.sh -nographic -S
+
 .PHONY: iso
 iso: $(iso)
 

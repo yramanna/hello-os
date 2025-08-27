@@ -31,7 +31,8 @@ make run-nox  # Non-graphical
 ### Attaching A Debugger
 
 ```bash
-make gdb
+make run-nox-gdb  # Or `run-gdb`
+make gdb          # In another terminal
 ```
 
 ## References
