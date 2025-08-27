@@ -28,6 +28,12 @@ make run      # Graphical
 make run-nox  # Non-graphical
 ```
 
+### Attaching A Debugger
+
+```bash
+make gdb
+```
+
 ## References
 
 The baremetal Rust setup (features, linking, etc.) is best described in <https://os.phil-opp.com/set-up-rust/>.

@@ -9,8 +9,9 @@ here="$(dirname "$0")"
 : "${STUB_ISO:=}"
 
 qemu_args=(
-	-s
 	-boot d
+	-chardev "socket,path=${here}/build/gdb.sock,server=on,wait=off,id=gdb0"
+	-gdb chardev:gdb0
 )
 
 if [[ -n "${STUB_ISO}" ]]; then

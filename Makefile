@@ -57,3 +57,6 @@ kernel: $(kernel)
 $(kernel):
 	cargo build --artifact-dir=$(PWD)/build
 
+.PHONY: gdb
+gdb:
+	gdb -iex "set auto-load local-gdbinit off" -iex "source ./.gdbinit"

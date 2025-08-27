@@ -43,6 +43,7 @@
         rustNightly
 
         qemu
+        gdb
 
         # Toolchain
         nasm
