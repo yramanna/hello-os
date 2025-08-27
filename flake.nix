@@ -33,13 +33,15 @@
     x86Pkgs = makeNixpkgs "x86_64-linux";
     x86Tools = pkgs.pkgsCross.gnu64;
 
+    inherit (pkgs) lib;
+
     rustNightly = pkgs.rust-bin.nightly.${nightlyVersion}.default.override {
       extensions = [ "rust-src" "rust-analyzer-preview" ];
       targets = [ "x86_64-unknown-linux-gnu" ];
     };
   in {
     devShell = pkgs.mkShell {
-      nativeBuildInputs = with pkgs; [
+      nativeBuildInputs = with pkgs; ([
         rustNightly
 
         qemu
@@ -50,10 +52,12 @@
         (pkgs.writeShellScriptBin "x86_64.ld" ''
           exec ${x86Tools.buildPackages.bintools}/bin/${x86Tools.stdenv.cc.targetPrefix}ld "$@"
         '')
-
-        x86Pkgs.grub2
+      ] ++ lib.optionals pkgs.stdenv.isLinux [
+        grub2
         xorriso
-      ];
+      ]);
+
+      GRUB_X86_MODULES = lib.optionalString pkgs.stdenv.isLinux "${x86Pkgs.grub2}/lib/grub/i386-pc";
     };
   });
 }

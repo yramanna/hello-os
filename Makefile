@@ -44,7 +44,7 @@ $(iso): $(grub_cfg) $(kernel)
 	@mkdir -p build/isofiles/boot/grub
 	cp $(grub_cfg) build/isofiles/boot/grub
 	cp $(kernel) build/isofiles/boot/kernel.bin
-	grub-mkrescue --compress=xz -o $(iso) build/isofiles
+	grub-mkrescue --compress=xz -o $(iso) -d $(GRUB_X86_MODULES) build/isofiles
 	@rm -r build/isofiles
 
 .PHONY: stub-iso
@@ -54,7 +54,7 @@ ifeq ($(prebuilt_iso),)
 $(stub_iso): $(grub_stub_cfg)
 	@mkdir -p build/isofiles/boot/grub
 	cp $(grub_stub_cfg) build/isofiles/boot/grub
-	grub-mkrescue --compress=xz -o $(iso) build/isofiles
+	grub-mkrescue --compress=xz -o $(iso) -d $(GRUB_X86_MODULES) build/isofiles
 	@rm -r build/isofiles
 endif
 
