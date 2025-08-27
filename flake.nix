@@ -31,7 +31,7 @@
 
     pkgs = makeNixpkgs system;
     x86Pkgs = makeNixpkgs "x86_64-linux";
-    x86Tools = pkgs.pkgsCross.gnu64;
+    x86CrossPkgs = if pkgs.system == "x86_64-linux" then pkgs.stdenv else pkgs.pkgsCross.gnu64;
 
     inherit (pkgs) lib;
 
@@ -40,7 +40,7 @@
       targets = [ "x86_64-unknown-linux-gnu" ];
     };
   in {
-    devShell = pkgs.mkShell {
+    devShell = x86CrossPkgs.mkShell {
       nativeBuildInputs = with pkgs; ([
         rustNightly
 
@@ -50,7 +50,7 @@
         # Toolchain
         nasm
         (pkgs.writeShellScriptBin "x86_64.ld" ''
-          exec ${x86Tools.buildPackages.bintools}/bin/${x86Tools.stdenv.cc.targetPrefix}ld "$@"
+          exec ${x86CrossPkgs.buildPackages.bintools}/bin/${x86CrossPkgs.stdenv.cc.targetPrefix}ld "$@"
         '')
       ] ++ lib.optionals pkgs.stdenv.isLinux [
         grub2
