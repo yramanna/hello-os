@@ -31,7 +31,7 @@
 
     pkgs = makeNixpkgs system;
     x86Pkgs = makeNixpkgs "x86_64-linux";
-    x86CrossPkgs = if pkgs.system == "x86_64-linux" then pkgs.stdenv else pkgs.pkgsCross.gnu64;
+    x86CrossPkgs = if pkgs.system == "x86_64-linux" then pkgs else pkgs.pkgsCross.gnu64;
 
     inherit (pkgs) lib;
 
