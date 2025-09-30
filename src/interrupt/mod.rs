@@ -151,7 +151,7 @@ macro_rules! wrap_interrupt {
 /// A handler function for an interrupt or an exception without error code.
 pub type HandlerFunc = unsafe extern "C" fn(&mut PtRegs);
 
-pub type HandlerFunc = unsafe extern "C" fn(&mut PtRegs);
+pub type HandlerFuncWithErrCode = unsafe extern "C" fn(&mut PtRegs);
 
 /// Invalid Opcode handler.
 unsafe extern "C" fn invalid_opcode(regs: &mut PtRegs) {
