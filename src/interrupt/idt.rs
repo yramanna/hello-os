@@ -249,9 +249,7 @@ macro_rules! impl_set_handler_fn {
 }
 
 impl_set_handler_fn!(HandlerFunc);
-impl_set_handler_fn!(TrampolineHandlerFunc);
 impl_set_handler_fn!(HandlerFuncWithErrCode);
-impl_set_handler_fn!(PageFaultHandlerFunc);
 
 /// Attributes of an IDT entry.
 ///
