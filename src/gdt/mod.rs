@@ -73,6 +73,13 @@ pub unsafe fn init_cpu() {
         GdtEntry::new(0, 0, access, GDT_F_LONG_MODE)
     };
 
+    // You need to initialize other GDT entries, e.g., kernel data, user
+    // code and data and TSS
+    //
+    // For TSS use SystemAccessByte, set privilege to 3 and use BigGdtEntry type
+    // Use tss_addr as a pointer and mem::size_of::<TaskStateSegment>() as u32 as
+    // size.
+
 
     // Load GDT
     lgdt(&gdt.get_pointer());
