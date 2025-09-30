@@ -16,7 +16,6 @@ use x86::msr;
 use crate::gdt::{GlobalDescriptorTable, TaskStateSegment};
 use crate::interrupt::x86_xapic::XAPIC;
 use crate::thread::SwitchDecision;
-use verified::trap::Registers;
 
 const NEW_CPU: Cpu = Cpu::new();
 

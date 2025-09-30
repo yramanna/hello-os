@@ -77,8 +77,8 @@ pub unsafe fn init_cpu() {
     // code and data and TSS
     //
     // For TSS use SystemAccessByte, set privilege to 3 and use BigGdtEntry type
-    // Use tss_addr as a pointer and mem::size_of::<TaskStateSegment>() as u32 as
-    // size.
+    // Use tss_addr as a pointer (offset) 
+    // and mem::size_of::<TaskStateSegment>() as u32 as limit.
 
 
     // Load GDT

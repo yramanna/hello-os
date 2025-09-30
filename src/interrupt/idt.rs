@@ -18,7 +18,7 @@ use core::mem;
 use bit_field::BitField;
 use x86::{segmentation, Ring};
 
-use super::{HandlerFunc, HandlerFuncWithErrCode, IST_EXCEPTION, IST_IRQ};
+use super::{HandlerFunc, HandlerFuncWithErrCode};
 
 /// An X86-64 Interrupt Descriptor Table.
 #[derive(Clone)]
@@ -195,14 +195,14 @@ impl<F> Entry<F> {
 
     const fn missing_exception() -> Self {
         Self {
-            ist: IST_EXCEPTION as u8,
+            ist: 0,
             ..Self::missing()
         }
     }
 
     const fn missing_irq() -> Self {
         Self {
-            ist: IST_IRQ as u8,
+            ist: 0,
             ..Self::missing()
         }
     }

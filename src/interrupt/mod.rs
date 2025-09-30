@@ -26,16 +26,11 @@ pub use exception::Exception;
 use exception::EXCEPTION_MAX;
 use idt::Idt;
 pub use lapic::{boot_ap, end_of_interrupt, set_timer};
-use verified::trap::Registers;
 
 /// The IRQ offset.
 pub const IRQ_OFFSET: usize = 32;
 
 pub const IRQ_TIMER: usize = 0;
-pub const IRQ_IOMMU_FAULT: usize = 1;
-
-pub const IST_EXCEPTION: usize = 1;
-pub const IST_IRQ: usize = 2;
 
 /// The global IDT.
 static mut GLOBAL_IDT: Idt = Idt::new();
@@ -53,7 +48,7 @@ struct TrampolineMarker(());
 
 macro_rules! wrap_interrupt_with_error_code {
     ($handler:path) => {{
-        let _: unsafe extern "C" fn(&mut Registers) = $handler;
+        let _: unsafe extern "C" fn(&mut InterruptStackFrame) = $handler;
 
         /// Interrupt trampoline
         #[naked]
@@ -73,7 +68,7 @@ macro_rules! wrap_interrupt_with_error_code {
 
                 // other registers here
 
-                // fn handler(registers: &mut Registers)
+                // fn handler(registers: &mut InterruptStackFrame)
                 "mov rdi, rsp",
                 "call {handler}",
 
@@ -98,7 +93,7 @@ macro_rules! wrap_interrupt_with_error_code {
 
 macro_rules! wrap_interrupt {
     ($handler:path) => {{
-        let _: unsafe extern "C" fn(&mut Registers) = $handler;
+        let _: unsafe extern "C" fn(&mut InterruptStackFrame) = $handler;
 
         /// Interrupt trampoline
         #[naked]
@@ -122,7 +117,7 @@ macro_rules! wrap_interrupt {
 
                 // ... same as above
 
-                // fn handler(registers: &mut Registers)
+                // fn handler(registers: &mut InterruptStackFrame)
                 "mov rdi, rsp",
                 "call {handler}",
 
@@ -149,12 +144,11 @@ macro_rules! wrap_interrupt {
 // "x86-interrupt" is gated behind #![feature(abi_x86_interrupt)].
 
 /// A handler function for an interrupt or an exception without error code.
-pub type HandlerFunc = unsafe extern "C" fn(&mut PtRegs);
-
-pub type HandlerFuncWithErrCode = unsafe extern "C" fn(&mut PtRegs);
+pub type HandlerFunc = unsafe extern "C" fn(&mut InterruptStackFrame);
+pub type HandlerFuncWithErrCode = unsafe extern "C" fn(&mut InterruptStackFrame);
 
 /// Invalid Opcode handler.
-unsafe extern "C" fn invalid_opcode(regs: &mut PtRegs) {
+unsafe extern "C" fn invalid_opcode(regs: &mut InterruptStackFrame) {
     log::error!("CPU {}, Invalid Opcode: {:#x?}", crate::cpu::get_cpu_id(), regs);
     //crate::debugger::breakpoint(2);
     spin_forever();
@@ -164,9 +158,8 @@ unsafe extern "C" fn invalid_opcode(regs: &mut PtRegs) {
 /// Registers passed to the ISR.
 #[repr(C)]
 #[derive(Debug)]
-pub struct PtRegs {
-    // add the 5 things + error code added by the hardware
-
+pub struct InterruptStackFrame {
+    
     pub r15: u64,
     pub r14: u64,
     pub r13: u64,
@@ -182,6 +175,9 @@ pub struct PtRegs {
     pub rsi: u64,
     pub rdi: u64,
     pub rax: u64,
+
+
+    // add the 5 values + error code added by the hardware
 }
 
 
@@ -200,14 +196,12 @@ pub unsafe fn init() {
 
     let idt = &mut GLOBAL_IDT;
 
-    // initialize idt with handlers 
+    // initialize idt with handlers, a couple of examples below
+    // of course you need handler implementations, check invalid_opcode above
     //
-
-    idt.breakpoint.set_handler_fn(wrap_interrupt!(breakpoint));
-   
-    idt.page_fault.set_handler_fn(wrap_interrupt_with_error_code!(page_fault));
-
-    idt.interrupts[IRQ_TIMER].set_handler_fn(wrap_interrupt!(timer));
+    // idt.breakpoint.set_handler_fn(wrap_interrupt!(breakpoint));
+    // idt.page_fault.set_handler_fn(wrap_interrupt_with_error_code!(page_fault));
+    // idt.interrupts[IRQ_TIMER].set_handler_fn(wrap_interrupt!(timer));
 
     let ioapic_base = mps::probe_ioapic();
     ioapic::init(ioapic_base);
