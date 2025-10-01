@@ -66,13 +66,13 @@ macro_rules! wrap_interrupt_with_error_code {
                 "push rdx",
                 "push rcx",
 
-                // other registers here
+                // Implement pushing missing registers here
 
                 // fn handler(registers: &mut InterruptStackFrame)
                 "mov rdi, rsp",
                 "call {handler}",
 
-                // ... restore other regs
+                // Implement restoring missing regs
                 
                 "pop rcx",
                 "pop rdx",
@@ -141,21 +141,21 @@ macro_rules! wrap_interrupt {
     }}
 }
 
-// "x86-interrupt" is gated behind #![feature(abi_x86_interrupt)].
-
 /// A handler function for an interrupt or an exception without error code.
 pub type HandlerFunc = unsafe extern "C" fn(&mut InterruptStackFrame);
 pub type HandlerFuncWithErrCode = unsafe extern "C" fn(&mut InterruptStackFrame);
 
-/// Invalid Opcode handler.
+/// Just as an example: Invalid Opcode handler.
 unsafe extern "C" fn invalid_opcode(regs: &mut InterruptStackFrame) {
     log::error!("CPU {}, Invalid Opcode: {:#x?}", crate::cpu::get_cpu_id(), regs);
     //crate::debugger::breakpoint(2);
     spin_forever();
 }
 
+/// Implement other handlers here
 
-/// Registers passed to the ISR.
+
+/// Registers passed to the interrupt handler
 #[repr(C)]
 #[derive(Debug)]
 pub struct InterruptStackFrame {
@@ -177,7 +177,7 @@ pub struct InterruptStackFrame {
     pub rax: u64,
 
 
-    // add the 5 values + error code added by the hardware
+    // Implement: add the 5 values + error code added by the hardware
 }
 
 
@@ -196,7 +196,9 @@ pub unsafe fn init() {
 
     let idt = &mut GLOBAL_IDT;
 
-    // initialize idt with handlers, a couple of examples below
+    // Implement: 
+    //
+    // You need to initialize idt with handlers similar to a couple of examples below
     // of course you need handler implementations, check invalid_opcode above
     //
     // idt.breakpoint.set_handler_fn(wrap_interrupt!(breakpoint));

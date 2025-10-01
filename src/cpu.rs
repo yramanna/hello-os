@@ -19,6 +19,9 @@ use crate::thread::SwitchDecision;
 
 const NEW_CPU: Cpu = Cpu::new();
 
+/// Size of an IST stack.
+const IST_STACK_SIZE: usize = 1 * 1024 * 1024; // 1 MiB
+
 #[repr(C, align(4096))]
 pub struct Cpu {
 
@@ -36,11 +39,19 @@ pub struct Cpu {
     /// The Task State Segment.
     pub tss: TaskStateSegment,
 
+    /// The Interrupt Stacks.
+    pub ist: [IstStack; 7],
+
+
 }
 
 /// A stack.
 #[repr(transparent)]
 pub struct Stack<const SZ: usize>([u8; SZ]);
+
+/// An IST stack.
+pub type IstStack = Stack<IST_STACK_SIZE>;
+
 
 impl<const SZ: usize> Stack<SZ> {
     pub const fn new() -> Self {
@@ -63,6 +74,14 @@ impl Cpu {
             // Implement this
         }
     }
+}
+
+/// Returns a handle to the current CPU's data structure.
+/// We plan to implement support for per-CPU data structures via thread local 
+/// variables for now just make sure you have one global CPU data structure and 
+/// return it from this method
+pub fn get_current() -> &'static mut Cpu {
+    // Implement this
 }
 
 

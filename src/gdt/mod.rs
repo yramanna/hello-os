@@ -41,10 +41,8 @@ const GDT_F_LONG_MODE: u8 = 1 << 5;
 /// This must be called only once for each CPU reset.
 pub unsafe fn init_cpu() {
     
-    // We will later add support for multiple CPUs for now use just one static
-
-    //let cpu = crate::cpu::get_current();
-
+    // We will later add support for multiple CPUs 
+    let cpu = crate::cpu::get_current();
 
     // Initialize TSS
     let tss_addr = {
@@ -54,6 +52,10 @@ pub unsafe fn init_cpu() {
             cpu.tss.set_ist(i, ist_addr as u64);
         }
 
+        // for now use IST[0] as a regular interrupt stack
+        // we later will switch to a per-thread interrupt stack
+        // however, since we don't have any threads running this will allow 
+        // us to receive interrupts 
         let rsp0_addr = cpu.ist[0].bottom();
         cpu.tss.set_rsp(Ring::Ring0, rsp0_addr as u64);
 
@@ -85,7 +87,7 @@ pub unsafe fn init_cpu() {
     lgdt(&gdt.get_pointer());
 
     // We don't load FS and GS
-    // GS is used for the CPU-local structure (crate::cpu).
+    // we will use one of them to implement per-CPU data structures.
     use GlobalDescriptorTable as GDT;
     load_cs(SegmentSelector::new(GDT::KERNEL_CODE_INDEX, Ring::Ring0));
     load_ds(SegmentSelector::new(GDT::KERNEL_DATA_INDEX, Ring::Ring0));
