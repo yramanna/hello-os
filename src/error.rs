@@ -1,12 +1,10 @@
 //! Error handling.
-
 pub type Result<T> = core::result::Result<T, Error>;
 
-use displaydoc::Display;
 
 /// An error.
 #[non_exhaustive]
-#[derive(Clone, Debug, Display)]
+#[derive(Clone, Debug)]
 pub enum Error {
     /// No such script is defined.
     NoSuchScript,

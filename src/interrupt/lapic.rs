@@ -11,25 +11,24 @@ use x86::apic::{ApicControl, ApicId};
 use x86::msr;
 
 use super::Cycles;
-use crate::{boot, cpu};
+// use crate::{boot, cpu};
 
+use crate::cpu::{self, get_cpu_id};
+//use crate::cpu;
 /// Returns the 4KiB LAPIC region.
 unsafe fn probe_apic() -> &'static mut [u32] {
     let msr27: u32 = msr::rdmsr(msr::APIC_BASE) as u32;
     let lapic = (msr27 & 0xffff_0000) as usize as *mut u32;
-
     slice::from_raw_parts_mut(lapic, 4096 / 4)
 }
 
 /// Initializes LAPIC in xAPIC mode.
 pub unsafe fn init() {
     let cpu = cpu::get_current();
-
-    let apic_region = probe_apic();
-    log::debug!("APIC base: {:?}", apic_region as *mut _ as *mut u8);
-
+    let apic_region: &'static mut [u32] = probe_apic();
     let mut xapic = XAPIC::new(apic_region);
     xapic.attach();
+    xapic.tsc_set_oneshot(0xfffffffe); 
     xapic.tsc_enable(32);
 
     cpu.xapic.write(xapic);
@@ -38,7 +37,8 @@ pub unsafe fn init() {
 /// Arms the timer interrupt.
 pub fn set_timer(cycles: Cycles) {
     let xapic = unsafe {
-        (&mut *crate::cpu::get_current_cpu_field_ptr!(xapic, MaybeUninit<XAPIC>)).assume_init_mut()
+        crate::cpu::get_current().xapic.assume_init_mut()
+        //(&mut *crate::cpu::get_current_cpu_field_ptr!(xapic, MaybeUninit<XAPIC>)).assume_init_mut()
     };
 
     // FIXME: Truncated
@@ -48,7 +48,8 @@ pub fn set_timer(cycles: Cycles) {
 /// Acknowledges an interrupt.
 pub fn end_of_interrupt() {
     let xapic = unsafe {
-        (&mut *crate::cpu::get_current_cpu_field_ptr!(xapic, MaybeUninit<XAPIC>)).assume_init_mut()
+        crate::cpu::get_current().xapic.assume_init_mut()
+        // (&mut *crate::cpu::get_current_cpu_field_ptr!(xapic, MaybeUninit<XAPIC>)).assume_init_mut()
     };
 
     xapic.eoi();

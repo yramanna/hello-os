@@ -358,14 +358,15 @@ impl ApicControl for XAPIC {
         lvt |= vector as u32;
 
         lvt.set_bit(16, false);
-        lvt.set_bit(17, false);
+        lvt.set_bit(17, true);
+        lvt.set_bit(18,false);
 
         // LOCAL MOD
         // > Bits 18:17 selects the timer mode (see Section 11.5.4)
         // > (00b) one-shot mode using a count-down value
         // > (01b) periodic mode reloading a count-down value
         // > (10b) TSC-Deadline mode using absolute target value in IA32_TSC_DEADLINE MSR
-        lvt.set_bits(17..18, 0b00); // One-shot
+        // lvt.set_bits(17..18, 0b01); // One-shot
 
         self.write(ApicRegister::XAPIC_LVT_TIMER, lvt);
     }
