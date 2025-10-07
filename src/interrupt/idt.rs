@@ -140,7 +140,7 @@ impl Idt {
             limit: (mem::size_of::<Self>() - 1) as u16,
         };
 
-        lidt(&ptr);
+        unsafe { lidt(&ptr) };
     }
 }
 

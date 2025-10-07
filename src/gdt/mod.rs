@@ -79,17 +79,19 @@ pub unsafe fn init_cpu() {
     // Use tss_addr as a pointer (offset)
     // and mem::size_of::<TaskStateSegment>() as u32 as limit.
 
-    // Load GDT
-    lgdt(&gdt.get_pointer());
+    unsafe {
+        // Load GDT
+        lgdt(&gdt.get_pointer());
 
-    // We don't load FS and GS
-    // we will use one of them to implement per-CPU data structures.
-    use GlobalDescriptorTable as GDT;
-    load_cs(SegmentSelector::new(GDT::KERNEL_CODE_INDEX, Ring::Ring0));
-    load_ds(SegmentSelector::new(GDT::KERNEL_DATA_INDEX, Ring::Ring0));
-    load_es(SegmentSelector::new(GDT::KERNEL_DATA_INDEX, Ring::Ring0));
-    load_ss(SegmentSelector::new(GDT::KERNEL_DATA_INDEX, Ring::Ring0));
-    load_tr(SegmentSelector::new(GDT::TSS_INDEX, Ring::Ring0));
+        // We don't load FS and GS
+        // we will use one of them to implement per-CPU data structures.
+        use GlobalDescriptorTable as GDT;
+        load_cs(SegmentSelector::new(GDT::KERNEL_CODE_INDEX, Ring::Ring0));
+        load_ds(SegmentSelector::new(GDT::KERNEL_DATA_INDEX, Ring::Ring0));
+        load_es(SegmentSelector::new(GDT::KERNEL_DATA_INDEX, Ring::Ring0));
+        load_ss(SegmentSelector::new(GDT::KERNEL_DATA_INDEX, Ring::Ring0));
+        load_tr(SegmentSelector::new(GDT::TSS_INDEX, Ring::Ring0));
+    }
 }
 
 /// A Global Descriptor Table.

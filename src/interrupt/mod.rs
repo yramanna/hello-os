@@ -168,33 +168,37 @@ pub struct InterruptStackFrame {
 /// This should be called only once
 #[allow(static_mut_refs)]
 pub unsafe fn init() {
-    let pic1 = inb(PIC1_DATA);
-    let pic2: u8 = inb(PIC2_DATA);
-    // Disable 8259 PIC
-    outb(PIC1_DATA, 0xff);
-    outb(PIC2_DATA, 0xff);
+    unsafe {
+        let pic1 = inb(PIC1_DATA);
+        let pic2 = inb(PIC2_DATA);
+        // Disable 8259 PIC
+        outb(PIC1_DATA, 0xff);
+        outb(PIC2_DATA, 0xff);
 
-    let idt = &mut GLOBAL_IDT;
+        let idt = &mut GLOBAL_IDT;
 
-    // Implement:
-    //
-    // You need to initialize idt with handlers similar to a couple of examples below
-    // of course you need handler implementations, check invalid_opcode above
-    // idt.breakpoint.set_handler_fn(wrap_interrupt!(breakpoint));
-    // idt.page_fault.set_handler_fn(wrap_interrupt_with_error_code!(page_fault));
-    // idt.interrupts[IRQ_TIMER].set_handler_fn(wrap_interrupt!(timer));
+        // Implement:
+        //
+        // You need to initialize idt with handlers similar to a couple of examples below
+        // of course you need handler implementations, check invalid_opcode above
+        // idt.breakpoint.set_handler_fn(wrap_interrupt!(breakpoint));
+        // idt.page_fault.set_handler_fn(wrap_interrupt_with_error_code!(page_fault));
+        // idt.interrupts[IRQ_TIMER].set_handler_fn(wrap_interrupt!(timer));
 
-    let ioapic_base = mps::probe_ioapic();
-    ioapic::init(ioapic_base);
+        let ioapic_base = mps::probe_ioapic();
+        ioapic::init(ioapic_base);
+    }
 }
 
 /// Initializes per-CPU interrupt controllers.
 ///
 /// This should be called only once per CPU.
 pub unsafe fn init_cpu() {
-    lapic::init();
-    ioapic::init_cpu();
-    GLOBAL_IDT.load();
+    unsafe {
+        lapic::init();
+        ioapic::init_cpu();
+        GLOBAL_IDT.load();
 
-    asm!("sti");
+        asm!("sti");
+    }
 }

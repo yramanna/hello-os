@@ -390,7 +390,7 @@ impl ApicControl for XAPIC {
             Level::Assert,
             TriggerMode::Level,
         );
-        self.send_ipi(icr);
+        unsafe { self.send_ipi(icr) };
     }
 
     /// Deassert INIT IPI.
@@ -406,7 +406,7 @@ impl ApicControl for XAPIC {
             Level::Deassert,
             TriggerMode::Level,
         );
-        self.send_ipi(icr);
+        unsafe { self.send_ipi(icr) };
     }
 
     /// Send a STARTUP IPI to a core.
@@ -421,7 +421,7 @@ impl ApicControl for XAPIC {
             Level::Assert,
             TriggerMode::Edge,
         );
-        self.send_ipi(icr);
+        unsafe { self.send_ipi(icr) };
     }
 
     /// Send a generic IPI.
