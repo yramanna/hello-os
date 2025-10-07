@@ -23,7 +23,6 @@ const IST_STACK_SIZE: usize = 1 * 1024 * 1024; // 1 MiB
 
 #[repr(C, align(4096))]
 pub struct Cpu {
-
     /// The CPU ID.
     ///
     /// Currently it's the logical APIC ID.
@@ -40,8 +39,6 @@ pub struct Cpu {
 
     /// The Interrupt Stacks.
     pub ist: [IstStack; 7],
-
-
 }
 
 /// A stack.
@@ -51,16 +48,13 @@ pub struct Stack<const SZ: usize>([u8; SZ]);
 /// An IST stack.
 pub type IstStack = Stack<IST_STACK_SIZE>;
 
-
 impl<const SZ: usize> Stack<SZ> {
     pub const fn new() -> Self {
         Self([0u8; SZ])
     }
 
     pub fn bottom(&self) -> *const u8 {
-        unsafe {
-            (self.0.as_ptr() as *const u8).add(SZ)
-        }
+        unsafe { (self.0.as_ptr() as *const u8).add(SZ) }
     }
 }
 
@@ -76,19 +70,17 @@ impl Cpu {
 }
 
 /// Returns a handle to the current CPU's data structure.
-/// We plan to implement support for per-CPU data structures via thread local 
-/// variables for now just make sure you have one global CPU data structure and 
+/// We plan to implement support for per-CPU data structures via thread local
+/// variables for now just make sure you have one global CPU data structure and
 /// return it from this method
 pub fn get_current() -> &'static mut Cpu {
     // Implement this
 }
 
-
-pub fn get_cpu_id() -> i32{
+pub fn get_cpu_id() -> i32 {
     // Implement this
 }
 
-
-pub fn get_cpu_id() -> i32{
+pub fn get_cpu_id() -> i32 {
     // Implement this
 }

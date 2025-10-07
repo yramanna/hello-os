@@ -2,7 +2,7 @@
 
 use core::mem::MaybeUninit;
 
-use x86::apic::{ioapic::IoApic, ApicControl};
+use x86::apic::{ApicControl, ioapic::IoApic};
 
 pub static mut IOAPIC: MaybeUninit<IoApic> = MaybeUninit::zeroed();
 

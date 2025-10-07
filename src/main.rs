@@ -1,5 +1,5 @@
 #![cfg_attr(not(test), no_std, no_main)]
-#![allow(static_mut_refs)] 
+#![allow(static_mut_refs)]
 
 mod cpu;
 mod error;

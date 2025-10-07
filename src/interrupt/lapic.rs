@@ -28,7 +28,7 @@ pub unsafe fn init() {
     let apic_region: &'static mut [u32] = probe_apic();
     let mut xapic = XAPIC::new(apic_region);
     xapic.attach();
-    xapic.tsc_set_oneshot(0xfffffffe); 
+    xapic.tsc_set_oneshot(0xfffffffe);
     xapic.tsc_enable(32);
 
     cpu.xapic.write(xapic);
@@ -57,5 +57,5 @@ pub fn end_of_interrupt() {
 
 /// Boots an application processor.
 pub unsafe fn boot_ap(cpu_id: u32, stack: u64, code: u64) {
-    // Will need to implement this to boot other CPUs, but not now    
+    // Will need to implement this to boot other CPUs, but not now
 }

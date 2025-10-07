@@ -14,8 +14,8 @@ mod mps;
 pub mod x86_xapic;
 
 use core::arch::{asm, naked_asm};
-use x86::io::{inb, outb};
 use idt::Idt;
+use x86::io::{inb, outb};
 
 //pub use lapic::{boot_ap, end_of_interrupt, set_timer};
 
@@ -130,12 +130,11 @@ macro_rules! wrap_interrupt {
     }}
 }
 
-pub type HandlerFuncWithErrCode = unsafe extern "C" fn(_:TrampolineMarkerErrorCode);
-pub type HandlerFunc = unsafe extern "C" fn(_:TrampolineMarker);
+pub type HandlerFuncWithErrCode = unsafe extern "C" fn(_: TrampolineMarkerErrorCode);
+pub type HandlerFunc = unsafe extern "C" fn(_: TrampolineMarker);
 
 /// Just as an example: Invalid Opcode handler.
-unsafe extern "C" fn invalid_opcode(regs: &mut InterruptStackFrame) {
-}
+unsafe extern "C" fn invalid_opcode(regs: &mut InterruptStackFrame) {}
 
 /// Implement other handlers here
 unsafe extern "C" fn timer(regs: &mut InterruptStackFrame) {
@@ -177,10 +176,10 @@ pub unsafe fn init() {
 
     let idt = &mut GLOBAL_IDT;
 
-    // Implement: 
+    // Implement:
     //
     // You need to initialize idt with handlers similar to a couple of examples below
-    // of course you need handler implementations, check invalid_opcode above    
+    // of course you need handler implementations, check invalid_opcode above
     // idt.breakpoint.set_handler_fn(wrap_interrupt!(breakpoint));
     // idt.page_fault.set_handler_fn(wrap_interrupt_with_error_code!(page_fault));
     // idt.interrupts[IRQ_TIMER].set_handler_fn(wrap_interrupt!(timer));
@@ -193,7 +192,6 @@ pub unsafe fn init() {
 ///
 /// This should be called only once per CPU.
 pub unsafe fn init_cpu() {
-
     lapic::init();
     ioapic::init_cpu();
     GLOBAL_IDT.load();
