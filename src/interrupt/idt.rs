@@ -21,6 +21,7 @@ use x86::{segmentation, Ring};
 use super::{HandlerFunc, HandlerFuncWithErrCode};
 
 /// An X86-64 Interrupt Descriptor Table.
+/// reference intel sw section 6-15
 #[derive(Clone)]
 #[repr(align(4096))]
 #[repr(C)]
@@ -50,9 +51,9 @@ pub struct Idt {
     pub device_not_available: Entry<HandlerFunc>,
 
     /// Double Fault (`#DF`)
-    pub double_fault: Entry<HandlerFunc>,
+    pub double_fault: Entry<HandlerFuncWithErrCode>,
 
-    /// Obsolete
+    /// Reserved: Floating point fault
     exception_9: Entry<HandlerFunc>,
 
     /// Invalid TSS (`#TS`)
@@ -65,10 +66,10 @@ pub struct Idt {
     pub stack_segment_fault: Entry<HandlerFuncWithErrCode>,
 
     /// General Protection Fault (`#GP`)
-    pub general_protection_fault: Entry<HandlerFunc>,
+    pub general_protection_fault: Entry<HandlerFuncWithErrCode>,
 
     /// Page Fault (`#PF`)
-    pub page_fault: Entry<HandlerFunc>,
+    pub page_fault: Entry<HandlerFuncWithErrCode>,
 
     /// Reserved
     exception_15: Entry<HandlerFunc>,
@@ -77,7 +78,7 @@ pub struct Idt {
     pub x87_floating_point: Entry<HandlerFunc>,
 
     /// Alignment Check (`#AC`)
-    pub alignment_check: Entry<HandlerFunc>,
+    pub alignment_check: Entry<HandlerFuncWithErrCode>,
 
     /// Machine Check (`#MC`)
     pub machine_check: Entry<HandlerFunc>,
@@ -86,16 +87,13 @@ pub struct Idt {
     pub simd_floating_point: Entry<HandlerFunc>,
 
     /// Virtualization (`#VE`)
-    pub virtualization: Entry<HandlerFunc>,
+    pub virtualization: Entry<HandlerFunc>, // 20
 
-    /// Reserved
-    reserved_2: [Entry<HandlerFunc>; 9],
+    /// Control (security related)
+    pub control_exception: Entry<HandlerFuncWithErrCode>, // 21
 
-    /// Security (`#SX`)
-    pub security_exception: Entry<HandlerFunc>,
-
-    /// Reserved
-    reserved_3: Entry<HandlerFunc>,
+    // reserved
+    reserved: [Entry<HandlerFunc>; 10], // 22 - 31
 
     /// Other interrupts
     pub interrupts: [Entry<HandlerFunc>; 256 - 32],
@@ -125,9 +123,8 @@ impl Idt {
             machine_check: Entry::missing_exception(),
             simd_floating_point: Entry::missing_exception(),
             virtualization: Entry::missing_exception(),
-            reserved_2: [Entry::missing(); 9],
-            security_exception: Entry::missing_exception(),
-            reserved_3: Entry::missing(),
+            control_exception: Entry::missing(),
+            reserved: [Entry::missing(); 10],
             interrupts: [Entry::missing_irq(); 256 - 32],
         }
     }
@@ -142,6 +139,7 @@ impl Idt {
             base: self as *const _,
             limit: (mem::size_of::<Self>() - 1) as u16,
         };
+
 
         lidt(&ptr);
     }

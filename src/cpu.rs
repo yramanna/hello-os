@@ -16,7 +16,7 @@ use x86::msr;
 use crate::gdt::{GlobalDescriptorTable, TaskStateSegment};
 use crate::interrupt::x86_xapic::XAPIC;
 
-const NEW_CPU: Cpu = Cpu::new();
+static mut NEW_CPU: Cpu = Cpu::new();
 
 /// Size of an IST stack.
 const IST_STACK_SIZE: usize = 1 * 1024 * 1024; // 1 MiB
@@ -84,3 +84,11 @@ pub fn get_current() -> &'static mut Cpu {
 }
 
 
+pub fn get_cpu_id() -> i32{
+    // Implement this
+}
+
+
+pub fn get_cpu_id() -> i32{
+    // Implement this
+}

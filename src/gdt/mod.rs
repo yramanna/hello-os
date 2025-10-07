@@ -21,15 +21,15 @@ mod types;
 use core::cmp::min;
 use core::mem;
 
+use x86::Ring;
 use x86::bits64::segmentation::load_cs;
 pub use x86::bits64::task::TaskStateSegment;
-use x86::dtables::{lgdt, DescriptorTablePointer};
-use x86::segmentation::{load_ds, load_es, load_ss, SegmentSelector};
+use x86::dtables::{DescriptorTablePointer, lgdt};
+use x86::segmentation::{SegmentSelector, load_ds, load_es, load_ss};
 use x86::task::load_tr;
-use x86::Ring;
 
-use types::{AccessByte, SystemAccessByte, SystemDescriptorType};
 use crate::cpu::IstStack;
+use types::{AccessByte, SystemAccessByte, SystemDescriptorType};
 
 // GDT flags
 // const GDT_F_PAGE_SIZE: u8 = 1 << 7;
@@ -40,25 +40,22 @@ const GDT_F_LONG_MODE: u8 = 1 << 5;
 ///
 /// This must be called only once for each CPU reset.
 pub unsafe fn init_cpu() {
-    
-    // We will later add support for multiple CPUs 
-    let cpu = crate::cpu::get_current();
+    // We will later add support for multiple CPUs
+    let cpu: &'static mut crate::cpu::Cpu = crate::cpu::get_current();
 
     // Initialize TSS
     let tss_addr = {
         for i in 0..min(cpu.ist.len(), 7) {
             let ist_addr = cpu.ist[i].bottom();
-            //log::debug!("IST {}: {:?}", i + 1, ist_addr);
             cpu.tss.set_ist(i, ist_addr as u64);
         }
 
         // for now use IST[0] as a regular interrupt stack
         // we later will switch to a per-thread interrupt stack
-        // however, since we don't have any threads running this will allow 
-        // us to receive interrupts 
+        // however, since we don't have any threads running this will allow
+        // us to receive interrupts
         let rsp0_addr = cpu.ist[0].bottom();
         cpu.tss.set_rsp(Ring::Ring0, rsp0_addr as u64);
-
         &cpu.tss as *const TaskStateSegment
     };
 
@@ -79,9 +76,8 @@ pub unsafe fn init_cpu() {
     // code and data and TSS
     //
     // For TSS use SystemAccessByte, set privilege to 3 and use BigGdtEntry type
-    // Use tss_addr as a pointer (offset) 
+    // Use tss_addr as a pointer (offset)
     // and mem::size_of::<TaskStateSegment>() as u32 as limit.
-
 
     // Load GDT
     lgdt(&gdt.get_pointer());
@@ -161,7 +157,7 @@ impl GlobalDescriptorTable {
 /// A 8-byte GDT Code/Data entry.
 #[derive(Copy, Clone, Debug)]
 #[repr(packed)]
-#[allow(dead_code)] // "field is never read" - used by platform
+#[allow(dead_code)]
 pub struct GdtEntry {
     limitl: u16,
     offsetl: u16,
