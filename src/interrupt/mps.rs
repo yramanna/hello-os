@@ -114,7 +114,7 @@ unsafe fn find_fp(base: usize, size: usize) -> Option<*const FloatingPointer> {
     let mut cur = base;
     let search_end = cur + size - 16;
     while cur < search_end {
-        let signature = ptr::read_volatile(cur as *const [u8; FP_SIGNATURE.len()]);
+        let signature = unsafe { ptr::read_volatile(cur as *const [u8; FP_SIGNATURE.len()]) };
         if signature == FP_SIGNATURE {
             return Some(cur as *const FloatingPointer);
         }

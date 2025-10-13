@@ -11,7 +11,7 @@ use bit_field::BitField;
 use core::fmt;
 
 use x86::apic::*;
-use x86::msr::{rdmsr, wrmsr, IA32_APIC_BASE, IA32_TSC_DEADLINE, IA32_X2APIC_INIT_COUNT};
+use x86::msr::{IA32_APIC_BASE, IA32_TSC_DEADLINE, IA32_X2APIC_INIT_COUNT, rdmsr, wrmsr};
 
 /// Local APIC ID register. Read-only. See Section 10.12.5.1 for initial values.
 pub const XAPIC_ID: u32 = 0x020;
@@ -359,7 +359,7 @@ impl ApicControl for XAPIC {
 
         lvt.set_bit(16, false);
         lvt.set_bit(17, true);
-        lvt.set_bit(18,false);
+        lvt.set_bit(18, false);
 
         // LOCAL MOD
         // > Bits 18:17 selects the timer mode (see Section 11.5.4)
@@ -390,7 +390,7 @@ impl ApicControl for XAPIC {
             Level::Assert,
             TriggerMode::Level,
         );
-        self.send_ipi(icr);
+        unsafe { self.send_ipi(icr) };
     }
 
     /// Deassert INIT IPI.
@@ -406,7 +406,7 @@ impl ApicControl for XAPIC {
             Level::Deassert,
             TriggerMode::Level,
         );
-        self.send_ipi(icr);
+        unsafe { self.send_ipi(icr) };
     }
 
     /// Send a STARTUP IPI to a core.
@@ -421,7 +421,7 @@ impl ApicControl for XAPIC {
             Level::Assert,
             TriggerMode::Edge,
         );
-        self.send_ipi(icr);
+        unsafe { self.send_ipi(icr) };
     }
 
     /// Send a generic IPI.

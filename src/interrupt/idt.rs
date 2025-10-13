@@ -16,7 +16,7 @@ use core::marker::PhantomData;
 use core::mem;
 
 use bit_field::BitField;
-use x86::{segmentation, Ring};
+use x86::{Ring, segmentation};
 
 use super::{HandlerFunc, HandlerFuncWithErrCode};
 
@@ -133,15 +133,14 @@ impl Idt {
     ///
     /// The IDT must live forever.
     pub unsafe fn load(&self) {
-        use x86::dtables::{lidt, DescriptorTablePointer};
+        use x86::dtables::{DescriptorTablePointer, lidt};
 
         let ptr = DescriptorTablePointer {
             base: self as *const _,
             limit: (mem::size_of::<Self>() - 1) as u16,
         };
 
-
-        lidt(&ptr);
+        unsafe { lidt(&ptr) };
     }
 }
 

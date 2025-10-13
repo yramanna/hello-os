@@ -20,7 +20,8 @@
     supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
 
     # Rust nightly version.
-    nightlyVersion = "2025-08-20";
+    # Update overlay with `nix flake update rust-overlay`.
+    nightlyVersion = "2025-10-13";
   in flake-utils.lib.eachSystem supportedSystems (system: let
     makeNixpkgs = system: import nixpkgs {
       inherit system;
