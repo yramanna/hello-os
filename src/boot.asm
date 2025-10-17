@@ -8,15 +8,25 @@ bits 64
 long_mode_start:
 
     ; initialize segments
+    mov ax, 0
+    mov ss, ax
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+
     ; setup stack
+    mov rsp, stack_top
 
     call rust_main
 
     hlt
 
-
 bits 32    ; By default, GRUB sets us to 32-bit mode.
 start:
+
+    ; Move stack pointer to our stack
+    mov esp, stack_top
 
     ; setup page tables 
     call set_up_page_tables
@@ -31,13 +41,29 @@ start:
     ; jump to long mode 
     jmp gdt64.code:long_mode_start
 
-
-
 set_up_page_tables:
-    ;
-    ; connect pml4 and pml3
+    ; Clear the page tables
+    mov edi, p4_table
+    mov ecx, 4096
+    xor eax, eax
+    rep stosd
 
-    ; write a loop that initializes pml3 to map 4GBs
+    ; Map first P4 entry to P3 table
+    mov eax, p3_table
+    or eax, 0b11 ; present + writable
+    mov [p4_table], eax
+
+    ; Map first 4GB in P3 table using 1GB huge pages
+    mov edi, p3_table
+    mov eax, 0b10000011 ; present + writable + huge page (1GB)
+    mov ecx, 4 ; Map 4 entries (4GB)
+
+.map_p3_table:
+    mov [edi], eax
+    add eax, 0x40000000 ; Add 1GB
+    add edi, 8
+    loop .map_p3_table
+
     ret
 
 enable_paging:
@@ -92,5 +118,3 @@ p3_table:
 stack_bottom:
     resb 4096 * 4 ; Reserve this many bytes
 stack_top:
-
-
