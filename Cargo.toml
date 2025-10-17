@@ -14,6 +14,9 @@ panic = "abort"
 x86 = "0.52.0"
 spin = "0.9.8"
 volatile = "0.3.0"
+bitfield = "0.13.2"
+bit_field = "0.10.1"
+bitfield-struct = "0.6"
 
 [dependencies.lazy_static]
 version = "1.4.0"
