@@ -43,31 +43,46 @@ impl PageMetadata {
     }
 }
 
+struct PageArrayWrapper {
+    ptr: *mut PageMetadata,
+    len: usize,
+}
+
+unsafe impl Send for PageArrayWrapper {}
+unsafe impl Sync for PageArrayWrapper {}
+
+impl PageArrayWrapper {
+    const fn new() -> Self {
+        Self {
+            ptr: core::ptr::null_mut(),
+            len: 0,
+        }
+    }
+
+    fn as_slice(&self) -> &mut [PageMetadata] {
+        unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
+    }
+}
+
 /// The physical page allocator
 pub struct PageAllocator {
-    page_array: Option<&'static mut [PageMetadata]>,
+    page_array: Mutex<PageArrayWrapper>,
     free_4kb_list: Mutex<Option<usize>>,
     free_2mb_list: Mutex<Option<usize>>,
-    kernel_end: usize,
+    kernel_end: Mutex<usize>,
 }
 
 impl PageAllocator {
     pub const fn new() -> Self {
         Self {
-            page_array: None,
+            page_array: Mutex::new(PageArrayWrapper::new()),
             free_4kb_list: Mutex::new(None),
             free_2mb_list: Mutex::new(None),
-            kernel_end: 0,
+            kernel_end: Mutex::new(0),
         }
     }
 
-    unsafe fn page_array(&self) -> &mut [PageMetadata] {
-        let ptr = self.page_array.as_ref().unwrap().as_ptr() as *mut PageMetadata;
-        let len = self.page_array.as_ref().unwrap().len();
-        core::slice::from_raw_parts_mut(ptr, len)
-    }
-
-    pub unsafe fn init(&mut self, max_physical_addr: u64, mmap: &MemoryMapTag) {
+    pub unsafe fn init(&self, max_physical_addr: u64, mmap: &MemoryMapTag) {
         // Cap at 4GB
         let max_addr = max_physical_addr.min(4 * 1024 * 1024 * 1024);
         let total_pages = (max_addr as usize + PAGE_SIZE_4KB - 1) / PAGE_SIZE_4KB;
@@ -86,8 +101,14 @@ impl PageAllocator {
             page_array_slice[i] = PageMetadata::new();
         }
         
-        self.page_array = Some(page_array_slice);
-        self.kernel_end = (kernel_end + metadata_size + PAGE_SIZE_4KB - 1) & !(PAGE_SIZE_4KB - 1);
+        {
+            let mut wrapper = self.page_array.lock();
+            wrapper.ptr = page_array_ptr;
+            wrapper.len = total_pages;
+        }
+        
+        let final_kernel_end = (kernel_end + metadata_size + PAGE_SIZE_4KB - 1) & !(PAGE_SIZE_4KB - 1);
+        *self.kernel_end.lock() = final_kernel_end;
         
         // Mark available regions from memory map
         for entry in mmap.memory_areas() {
@@ -100,11 +121,11 @@ impl PageAllocator {
         self.build_lists();
     }
 
-    fn mark_available(&mut self, base: usize, length: usize) {
-        let pages = self.page_array.as_mut().unwrap();
+    fn mark_available(&self, base: usize, length: usize) {
+        let pages = self.page_array.lock().as_slice();
         let start_pfn = base / PAGE_SIZE_4KB;
         let end_pfn = (base + length) / PAGE_SIZE_4KB;
-        let kernel_pfn = self.kernel_end / PAGE_SIZE_4KB;
+        let kernel_pfn = *self.kernel_end.lock() / PAGE_SIZE_4KB;
         
         let mut pfn = start_pfn.max(kernel_pfn);
         while pfn < end_pfn && pfn < pages.len() {
@@ -125,8 +146,8 @@ impl PageAllocator {
         }
     }
 
-    fn build_lists(&mut self) {
-        let pages = self.page_array.as_mut().unwrap();
+    fn build_lists(&self) {
+        let pages = self.page_array.lock().as_slice();
         let mut head_4kb = None;
         let mut head_2mb = None;
         
@@ -167,7 +188,7 @@ impl PageAllocator {
         let mut head = self.free_4kb_list.lock();
         
         if let Some(pfn) = *head {
-            let pages = unsafe { self.page_array() };
+            let pages = self.page_array.lock().as_slice();
             
             // Remove from list
             *head = pages[pfn].next;
@@ -183,7 +204,7 @@ impl PageAllocator {
             
             // Update superpage counter
             let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-            let pages = unsafe { self.page_array() };
+            let pages = self.page_array.lock().as_slice();
             if pages[sp_head].counter > 0 {
                 pages[sp_head].counter -= 1;
             }
@@ -201,7 +222,7 @@ impl PageAllocator {
         let mut head = self.free_2mb_list.lock();
         let pfn = (*head)?;
         
-        let pages = unsafe { self.page_array() };
+        let pages = self.page_array.lock().as_slice();
         
         // Remove from list
         *head = pages[pfn].next;
@@ -220,7 +241,7 @@ impl PageAllocator {
         let mut head = self.free_2mb_list.lock();
         let pfn = (*head)?;
         
-        let pages = unsafe { self.page_array() };
+        let pages = self.page_array.lock().as_slice();
         
         // Remove from 2MB list
         *head = pages[pfn].next;
@@ -231,6 +252,7 @@ impl PageAllocator {
         drop(head);
         
         // Convert to 4KB pages
+        let pages = self.page_array.lock().as_slice();
         let mut head_4kb = self.free_4kb_list.lock();
         for i in 0..PAGES_PER_2MB {
             let p = pfn + i;
@@ -258,7 +280,7 @@ impl PageAllocator {
     }
 
     fn free_4kb(&self, pfn: usize) {
-        let pages = unsafe { self.page_array() };
+        let pages = self.page_array.lock().as_slice();
         
         // Update superpage counter
         let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
@@ -286,7 +308,7 @@ impl PageAllocator {
     }
 
     fn free_2mb(&self, pfn: usize) {
-        let pages = unsafe { self.page_array() };
+        let pages = self.page_array.lock().as_slice();
         
         pages[pfn].state = PageState::Free2MB;
         pages[pfn].counter = PAGES_PER_2MB as u16;
@@ -303,7 +325,7 @@ impl PageAllocator {
 
     fn try_merge(&self, pfn: usize) {
         let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-        let pages = unsafe { self.page_array() };
+        let pages = self.page_array.lock().as_slice();
         
         // Check all pages are free
         for i in 0..PAGES_PER_2MB {
