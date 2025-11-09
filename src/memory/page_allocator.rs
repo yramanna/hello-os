@@ -159,13 +159,22 @@ impl PageAllocator {
                 continue;
             }
             
-            // Check if this is aligned to 2MB boundary and we have 512 pages available
             let phys_addr = pfn * PAGE_SIZE_4KB;
-            if phys_addr % PAGE_SIZE_2MB == 0 && pfn + PAGES_PER_2MB <= end_pfn && pfn + PAGES_PER_2MB <= page_array.len() {
+            
+            // Check if this is aligned to 2MB boundary and we have 512 pages available
+            if phys_addr % PAGE_SIZE_2MB == 0 && 
+               pfn + PAGES_PER_2MB <= end_pfn && 
+               pfn + PAGES_PER_2MB <= page_array.len() {
+                
                 // Check that all 512 pages would be after kernel_end
                 let all_after_kernel = (pfn + PAGES_PER_2MB - 1) >= kernel_end_pfn;
                 
-                if all_after_kernel {
+                // Also check that the entire 2MB region is within this memory area
+                let region_start_addr = base;
+                let region_end_addr = base + length;
+                let superpage_end_addr = phys_addr + PAGE_SIZE_2MB;
+                
+                if all_after_kernel && superpage_end_addr <= region_end_addr {
                     // Mark as 2MB superpage
                     page_array[pfn].state = PageState::Free2MB;
                     page_array[pfn].counter = PAGES_PER_2MB as u16;
@@ -173,6 +182,7 @@ impl PageAllocator {
                     // Mark the rest as part of the superpage
                     for i in 1..PAGES_PER_2MB {
                         page_array[pfn + i].state = PageState::PartOfFree2MB;
+                        page_array[pfn + i].counter = 0;
                     }
                     
                     pfn += PAGES_PER_2MB;
@@ -183,6 +193,7 @@ impl PageAllocator {
             // Otherwise mark as 4KB page if after kernel
             if phys_addr >= self.kernel_end {
                 page_array[pfn].state = PageState::Free4KB;
+                page_array[pfn].counter = 0;
             }
             
             pfn += 1;
