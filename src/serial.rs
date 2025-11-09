@@ -1,8 +1,9 @@
 use x86::io::{outb, inb};
 use spin::Mutex;
 use lazy_static::lazy_static;
-
+use core::fmt::{self, Write};
 const COM1: u16 = 0x3F8; // First serial port
+
 
 lazy_static! {
     pub static ref SERIAL1: Mutex<SerialPort> = {
@@ -63,9 +64,9 @@ impl core::fmt::Write for SerialPort {
 }
 
 #[doc(hidden)]
-pub fn _print(args: ::core::fmt::Arguments) {
+pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
-    SERIAL1.lock().write_fmt(args).expect("Printing to serial failed");
+    SERIAL1.lock().write_fmt(args).unwrap();
 }
 
 /// Prints to the host through the serial interface.

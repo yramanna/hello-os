@@ -2,5 +2,6 @@
 target = "src/x86_64-unknown-none.json"
 
 [unstable]
-build-std = [ "core" ]
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
 unstable-options = true

@@ -1,6 +1,12 @@
 global start
 global long_mode_start
+global _bootinfo
 extern rust_main
+
+section .data
+; Storage for multiboot info pointer
+_bootinfo:
+    dq 0
 
 section .text
 
@@ -24,7 +30,10 @@ long_mode_start:
 
 bits 32    ; By default, GRUB sets us to 32-bit mode.
 start:
-
+    ; Save multiboot info pointer from EBX
+    ; EAX contains the magic number, EBX contains the multiboot info pointer
+    call check_multiboot
+    
     ; Move stack pointer to our stack
     mov esp, stack_top
 
@@ -40,6 +49,22 @@ start:
 
     ; jump to long mode 
     jmp gdt64.code:long_mode_start
+
+check_multiboot:
+    ; Check if EAX contains the multiboot2 magic number
+    cmp eax, 0x36d76289
+    jne .no_multiboot
+    
+    ; Save the multiboot info pointer from EBX
+    ; We need to save it for later use in Rust
+    mov dword [_bootinfo], ebx
+    mov dword [_bootinfo + 4], 0
+    
+    ret
+
+.no_multiboot:
+    mov al, 'M'
+    jmp error
 
 set_up_page_tables:
     ; Clear the page tables

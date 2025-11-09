@@ -3,10 +3,14 @@ ENTRY(start)
 SECTIONS {
   . = 0x100000; /* Tells GRUB to load the kernel starting at the 1MiB mark */
 
+  .boot :
+  {
+    KEEP(*(.multiboot_header))
+    . = ALIGN(4K);
+  }
   .rodata :
   {
     /* ensure that the multiboot header is at the beginning */
-    KEEP(*(.multiboot_header))
     *(.rodata .rodata.*)
     . = ALIGN(4K);
   }
@@ -51,4 +55,7 @@ SECTIONS {
     . = ALIGN(4K);
   }
 
+  /* Mark the end of the kernel */
+  . = ALIGN(4K);
+  __end = .;
 }

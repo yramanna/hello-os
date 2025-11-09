@@ -62,14 +62,51 @@ pub unsafe fn init_cpu() {
     // Initialize GDT
     let gdt = &mut cpu.gdt;
 
+    gdt.kernel_data = {
+        let mut access = AccessByte::new();
+        access.set_privilege(0);
+        access.set_executable(false);
+        access.set_read_write(true);
+        GdtEntry::new(0, 0, access, GDT_F_LONG_MODE)
+    };
+
     // Just an example (kernel code, you need more)
     gdt.kernel_code = {
         let mut access = AccessByte::new();
         access.set_privilege(0);
         access.set_executable(true);
         access.set_read_write(true);
-
         GdtEntry::new(0, 0, access, GDT_F_LONG_MODE)
+    };
+
+    // User data segment
+    gdt.user_data = {
+        let mut access = AccessByte::new();
+        access.set_privilege(3);
+        access.set_executable(false);
+        access.set_read_write(true);
+        GdtEntry::new(0, 0, access, GDT_F_LONG_MODE)
+    };
+
+    // User code segment
+    gdt.user_code = {
+        let mut access = AccessByte::new();
+        access.set_privilege(3);
+        access.set_executable(true);
+        access.set_read_write(true);
+        GdtEntry::new(0, 0, access, GDT_F_LONG_MODE)
+    };
+
+    // TSS segment
+    gdt.tss = {
+        let mut access = SystemAccessByte::new(SystemDescriptorType::AvailableTss);
+        access.set_privilege(3);
+        BigGdtEntry::new(
+            tss_addr as u64,
+            mem::size_of::<TaskStateSegment>() as u32,
+            access,
+            0,
+        )
     };
 
     // You need to initialize other GDT entries, e.g., kernel data, user

@@ -60,17 +60,39 @@ macro_rules! wrap_interrupt_with_error_code {
                 "push rdx",
                 "push rcx",
 
-                 // push missing registers
+                // push missing registers
+                "push r8",
+                "push r9",
+                "push r10",
+                "push r11",
+                "push rbx",
+                "push rbp",
+                "push r12",
+                "push r13",
+                "push r14",
+                "push r15",
+
                 // fn handler(registers: &mut InterruptStackFrame)
                 "mov rdi, rsp",
                 "call {handler}",
 
                 // pop missing registers
+                "pop r15",
+                "pop r14",
+                "pop r13",
+                "pop r12",
+                "pop rbp",
+                "pop rbx",
+                "pop r11",
+                "pop r10",
+                "pop r9",
+                "pop r8",
                 "pop rcx",
                 "pop rdx",
                 "pop rsi",
                 "pop rdi",
                 "pop rax",
+                "add rsp, 8",  // pop error code
 
                 "iretq",
 
@@ -106,12 +128,32 @@ macro_rules! wrap_interrupt {
                 "push rdx",
                 "push rcx",
                 // ... same as above
+                "push r8",
+                "push r9",
+                "push r10",
+                "push r11",
+                "push rbx",
+                "push rbp",
+                "push r12",
+                "push r13",
+                "push r14",
+                "push r15",
 
                 // fn handler(registers: &mut InterruptStackFrame)
                 "mov rdi, rsp",
                 "call {handler}",
 
                 // .. don't forget
+                "pop r15",
+                "pop r14",
+                "pop r13",
+                "pop r12",
+                "pop rbp",
+                "pop rbx",
+                "pop r11",
+                "pop r10",
+                "pop r9",
+                "pop r8",
                 "pop rcx",
                 "pop rdx",
                 "pop rsi",
@@ -136,9 +178,44 @@ pub type HandlerFunc = unsafe extern "C" fn(_: TrampolineMarker);
 /// Just as an example: Invalid Opcode handler.
 unsafe extern "C" fn invalid_opcode(regs: &mut InterruptStackFrame) {}
 
-/// Implement other handlers here
+/// Page Fault handler.
+unsafe extern "C" fn page_fault(regs: &mut InterruptStackFrame) {
+    let cr2: u64;
+    unsafe {
+        asm!("mov {}, cr2", out(reg) cr2);
+    }
+    panic!("Page fault at address {:#x}, RIP: {:#x}, error code: {:#x}",
+           cr2, regs.rip, regs.error_code);
+}
+
+/// General Protection Fault handler.
+unsafe extern "C" fn general_protection_fault(regs: &mut InterruptStackFrame) {
+    panic!("General Protection Fault at RIP: {:#x}, error code: {:#x}",
+           regs.rip, regs.error_code);
+}
+
+/// Double Fault handler.
+unsafe extern "C" fn double_fault(regs: &mut InterruptStackFrame) {
+    panic!("Double Fault at RIP: {:#x}", regs.rip);
+}
+
+/// Breakpoint handler.
+unsafe extern "C" fn breakpoint(regs: &mut InterruptStackFrame) {
+}
+
+/// Timer interrupt handler.
 unsafe extern "C" fn timer(regs: &mut InterruptStackFrame) {
-    // print .
+    use crate::interrupt::{lapic, Cycles};
+    lapic::set_timer(Cycles(100_000)); 
+    // Print a dot for each timer interrupt
+    use x86::io::outb;
+    const SERIAL_PORT: u16 = 0x3f8;
+    unsafe {
+        outb(SERIAL_PORT, b'.');
+    }
+    
+    // Acknowledge the interrupt
+    lapic::end_of_interrupt();
 }
 
 /// Registers passed to the interrupt handler
@@ -161,7 +238,13 @@ pub struct InterruptStackFrame {
     pub rdi: u64,
     pub rax: u64,
     // Implement: add the 5 values + error code added by the hardware
-}
+    pub error_code: u64,
+    pub rip: u64,
+    pub cs: u64,
+    pub rflags: u64,
+    pub rsp: u64,
+    pub ss: u64,
+}   
 
 /// Initializes global interrupt controllers.
 ///
@@ -184,6 +267,17 @@ pub unsafe fn init() {
         // idt.breakpoint.set_handler_fn(wrap_interrupt!(breakpoint));
         // idt.page_fault.set_handler_fn(wrap_interrupt_with_error_code!(page_fault));
         // idt.interrupts[IRQ_TIMER].set_handler_fn(wrap_interrupt!(timer));
+        
+        // Set up exception handlers
+        idt.divide_by_zero.set_handler_fn(wrap_interrupt!(invalid_opcode));
+        idt.breakpoint.set_handler_fn(wrap_interrupt!(breakpoint));
+        idt.invalid_opcode.set_handler_fn(wrap_interrupt!(invalid_opcode));
+        idt.double_fault.set_handler_fn(wrap_interrupt_with_error_code!(double_fault));
+        idt.general_protection_fault.set_handler_fn(wrap_interrupt_with_error_code!(general_protection_fault));
+        idt.page_fault.set_handler_fn(wrap_interrupt_with_error_code!(page_fault));
+        
+        // Set up timer interrupt handler
+        idt.interrupts[IRQ_TIMER].set_handler_fn(wrap_interrupt!(timer));
 
         let ioapic_base = mps::probe_ioapic();
         ioapic::init(ioapic_base);

@@ -65,6 +65,19 @@ impl Cpu {
     pub const fn new() -> Self {
         Self {
             // Implement this
+            id: 0,
+            xapic: MaybeUninit::uninit(),
+            gdt: GlobalDescriptorTable::empty(),
+            tss: TaskStateSegment::new(),
+            ist: [
+                IstStack::new(),
+                IstStack::new(),
+                IstStack::new(),
+                IstStack::new(),
+                IstStack::new(),
+                IstStack::new(),
+                IstStack::new(),
+            ],
         }
     }
 }
@@ -75,12 +88,10 @@ impl Cpu {
 /// return it from this method
 pub fn get_current() -> &'static mut Cpu {
     // Implement this
+    unsafe { &mut NEW_CPU }
 }
 
 pub fn get_cpu_id() -> i32 {
     // Implement this
-}
-
-pub fn get_cpu_id() -> i32 {
-    // Implement this
+    0
 }
