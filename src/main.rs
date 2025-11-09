@@ -34,7 +34,6 @@ extern "C" {
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_main() -> ! {
     unsafe {
-        println!("\n=== Kernel Starting ===");
         
         // Check if we can read/write to see CPU state
         let rflags: u64;
@@ -42,25 +41,18 @@ pub extern "C" fn rust_main() -> ! {
         println!("RFLAGS: {:#x}", rflags);
         
         // Initialize GDT and TSS
-        println!("Initializing GDT...");
         gdt::init_cpu();
         
         // Initialize memory allocator BEFORE enabling interrupts
         // This must come early since interrupt handlers might allocate
-        println!("Initializing memory allocator...");
         let boot_info_addr = _bootinfo;
-        println!("Multiboot info at: {:#x}", boot_info_addr);
         memory::init(boot_info_addr);
         
         // Initialize interrupt controllers and IDT
-        println!("Initializing interrupts...");
         interrupt::init();
         
-        println!("Initializing per-CPU interrupt state...");
         interrupt::init_cpu();
-        
-        println!("\n=== Kernel Initialized Successfully ===\n");
-        
+                
         // Test the allocator
         test_allocator();
         
@@ -75,28 +67,20 @@ pub extern "C" fn rust_main() -> ! {
 fn test_allocator() {
     use alloc::boxed::Box;
     use alloc::vec::Vec;
-    
-    println!("\n=== Testing Memory Allocator ===");
-    
+        
     // Test Box allocation
-    println!("Testing Box<u64> allocation...");
     let boxed_value = Box::new(42u64);
-    println!("Allocated Box with value: {}", *boxed_value);
     
     // Test Vec allocation
-    println!("Testing Vec allocation...");
     let mut vec = Vec::new();
     vec.push(1);
     vec.push(2);
     vec.push(3);
-    println!("Created Vec with {} elements: {:?}", vec.len(), vec);
     
     // Test larger allocation
     println!("Testing larger Box allocation...");
     let large_box = Box::new([0u8; 1024]);
-    println!("Allocated large Box of {} bytes", large_box.len());
     
-    println!("=== Allocator Tests Passed ===\n");
 }
 
 /// This function is called on panic.
