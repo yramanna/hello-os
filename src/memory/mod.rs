@@ -189,10 +189,43 @@ unsafe impl GlobalAlloc for HeapAllocator {
             // Try to allocate more pages from the page allocator
             let pages_needed = (size + 4095) / 4096;
             
-            if pages_needed == 1 {
-                if let Some(page) = PAGE_ALLOCATOR.allocate_page(PageSize::Size4KB) {
-                    self.add_free_region(page, 4096);
-                    return self.alloc(layout);
+            // Allocate contiguous pages
+            if pages_needed <= 8 {  // Reasonable limit
+                // Allocate multiple pages and add them as one contiguous region
+                if let Some(first_page) = PAGE_ALLOCATOR.allocate_page(PageSize::Size4KB) {
+                    let mut all_contiguous = true;
+                    let mut last_page = first_page;
+                    
+                    // Try to allocate remaining pages
+                    for i in 1..pages_needed {
+                        if let Some(page) = PAGE_ALLOCATOR.allocate_page(PageSize::Size4KB) {
+                            // Check if pages are contiguous
+                            if page != last_page + 4096 {
+                                all_contiguous = false;
+                                // Free the non-contiguous page
+                                PAGE_ALLOCATOR.free_page(page, PageSize::Size4KB);
+                                break;
+                            }
+                            last_page = page;
+                        } else {
+                            all_contiguous = false;
+                            break;
+                        }
+                    }
+                    
+                    if all_contiguous && last_page == first_page + (pages_needed - 1) * 4096 {
+                        // All pages are contiguous, add as one large region
+                        self.add_free_region(first_page, pages_needed * 4096);
+                        return self.alloc(layout);
+                    } else {
+                        // Not contiguous, free what we allocated and add individually
+                        let mut addr = first_page;
+                        while addr <= last_page {
+                            self.add_free_region(addr, 4096);
+                            addr += 4096;
+                        }
+                        return self.alloc(layout);
+                    }
                 }
             }
             
