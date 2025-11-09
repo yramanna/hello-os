@@ -3,12 +3,14 @@
 pub mod multiboot2;
 pub mod page_allocator;
 pub mod mutex;
-pub mod test;
+// pub mod test;
 
 use core::alloc::{GlobalAlloc, Layout};
-use core::ptr::null_mut;
+use core::ptr::{self, NonNull};
+use core::mem;
 
 use page_allocator::{PageAllocator, PageSize};
+use mutex::Mutex;
 
 /// The global page allocator instance
 static mut PAGE_ALLOCATOR: PageAllocator = PageAllocator::new();
@@ -40,6 +42,8 @@ pub unsafe fn init(multiboot_info_addr: usize) {
     // Initialize the page allocator
     PAGE_ALLOCATOR.init(max_addr, mmap_tag);
     
+    // Initialize the heap allocator
+    ALLOCATOR.init();
 }
 
 /// Get a reference to the global page allocator
@@ -47,29 +51,160 @@ pub fn get_allocator() -> &'static PageAllocator {
     unsafe { &PAGE_ALLOCATOR }
 }
 
-/// Global allocator for Box<T> and other heap allocations
-pub struct KernelAllocator;
+/// Node in the free list
+struct ListNode {
+    size: usize,
+    next: Option<&'static mut ListNode>,
+}
 
-unsafe impl GlobalAlloc for KernelAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // For simplicity, always allocate a 4KB page regardless of size
-        // In production, you'd want to handle small allocations differently
-        if layout.size() > 4096 {
-            // For large allocations, we could use 2MB pages
-            // but for now just fail
-            return null_mut();
-        }
-        
-        match PAGE_ALLOCATOR.allocate_page(PageSize::Size4KB) {
-            Some(page_addr) => page_addr as *mut u8,
-            None => null_mut(),
+impl ListNode {
+    const fn new(size: usize) -> Self {
+        ListNode { size, next: None }
+    }
+
+    fn start_addr(&self) -> usize {
+        self as *const Self as usize
+    }
+
+    fn end_addr(&self) -> usize {
+        self.start_addr() + self.size
+    }
+}
+
+/// A simple heap allocator using a linked list of free blocks
+pub struct HeapAllocator {
+    head: Mutex<Option<&'static mut ListNode>>,
+}
+
+impl HeapAllocator {
+    pub const fn new() -> Self {
+        HeapAllocator {
+            head: Mutex::new(None),
         }
     }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
-        PAGE_ALLOCATOR.free_page(ptr as usize, PageSize::Size4KB);
+    /// Initialize the heap allocator by allocating initial pages
+    pub unsafe fn init(&self) {
+        // Allocate some initial heap space (e.g., 16 pages = 64KB)
+        const INITIAL_HEAP_PAGES: usize = 16;
+        
+        for _ in 0..INITIAL_HEAP_PAGES {
+            if let Some(page_addr) = PAGE_ALLOCATOR.allocate_page(PageSize::Size4KB) {
+                self.add_free_region(page_addr, 4096);
+            }
+        }
+    }
+
+    /// Add a free region to the heap
+    unsafe fn add_free_region(&self, addr: usize, size: usize) {
+        // Ensure the region is large enough to hold a ListNode
+        assert!(size >= mem::size_of::<ListNode>());
+        assert!(addr % mem::align_of::<ListNode>() == 0);
+
+        let mut node = ListNode::new(size);
+        node.next = self.head.lock().take();
+        
+        let node_ptr = addr as *mut ListNode;
+        node_ptr.write(node);
+        
+        *self.head.lock() = Some(&mut *node_ptr);
+    }
+
+    /// Find a free region that can fit the given size and alignment
+    fn find_region(&self, size: usize, align: usize) -> Option<(usize, usize)> {
+        let mut head = self.head.lock();
+        let mut current = head.as_mut()?;
+        
+        // Check if head works
+        if let Some(alloc_start) = Self::alloc_from_region(&*current, size, align) {
+            let next = current.next.take();
+            let region_start = current.start_addr();
+            let region_end = current.end_addr();
+            *head = next;
+            return Some((alloc_start, region_end));
+        }
+
+        // Check rest of list
+        loop {
+            let next = match current.next.as_mut() {
+                Some(next) => next,
+                None => return None,
+            };
+
+            if let Some(alloc_start) = Self::alloc_from_region(&*next, size, align) {
+                let region_end = next.end_addr();
+                current.next = next.next.take();
+                return Some((alloc_start, region_end));
+            }
+
+            current = current.next.as_mut()?;
+        }
+    }
+
+    /// Try to allocate from a region
+    fn alloc_from_region(region: &ListNode, size: usize, align: usize) -> Option<usize> {
+        let alloc_start = Self::align_up(region.start_addr(), align);
+        let alloc_end = alloc_start.checked_add(size)?;
+
+        if alloc_end > region.end_addr() {
+            return None;
+        }
+
+        let excess_size = region.end_addr() - alloc_end;
+        if excess_size > 0 && excess_size < mem::size_of::<ListNode>() {
+            return None;
+        }
+
+        Some(alloc_start)
+    }
+
+    fn align_up(addr: usize, align: usize) -> usize {
+        (addr + align - 1) & !(align - 1)
+    }
+
+    fn size_align(layout: Layout) -> (usize, usize) {
+        let layout = layout
+            .align_to(mem::align_of::<ListNode>())
+            .expect("adjusting alignment failed")
+            .pad_to_align();
+        let size = layout.size().max(mem::size_of::<ListNode>());
+        (size, layout.align())
+    }
+}
+
+unsafe impl GlobalAlloc for HeapAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let (size, align) = HeapAllocator::size_align(layout);
+        
+        if let Some((alloc_start, region_end)) = self.find_region(size, align) {
+            let alloc_end = alloc_start.checked_add(size).expect("overflow");
+            let excess_size = region_end - alloc_end;
+            
+            if excess_size > 0 {
+                self.add_free_region(alloc_end, excess_size);
+            }
+            
+            alloc_start as *mut u8
+        } else {
+            // Try to allocate more pages from the page allocator
+            let pages_needed = (size + 4095) / 4096;
+            
+            if pages_needed == 1 {
+                if let Some(page) = PAGE_ALLOCATOR.allocate_page(PageSize::Size4KB) {
+                    self.add_free_region(page, 4096);
+                    return self.alloc(layout);
+                }
+            }
+            
+            ptr::null_mut()
+        }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let (size, _) = HeapAllocator::size_align(layout);
+        self.add_free_region(ptr as usize, size);
     }
 }
 
 #[global_allocator]
-static ALLOCATOR: KernelAllocator = KernelAllocator;
+static ALLOCATOR: HeapAllocator = HeapAllocator::new();
