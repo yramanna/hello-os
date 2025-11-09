@@ -92,15 +92,9 @@ impl PageAllocator {
         // Cap at 4GB to avoid excessive metadata (adjust as needed)
         let capped_max = actual_max_addr.min(4 * 1024 * 1024 * 1024); // 4GB max
         
-        println!("Reported max physical address: {:#x}", max_physical_addr);
-        println!("Actual usable max address: {:#x}", actual_max_addr);
-        println!("Capped max address: {:#x}", capped_max);
-        
         // Calculate number of pages needed
         let total_pages = ((capped_max as usize) + PAGE_SIZE_4KB - 1) / PAGE_SIZE_4KB;
         self.total_pages = total_pages;
-        
-        println!("Total pages to track: {}", total_pages);
         
         // Get the kernel end address
         extern "C" {
@@ -111,13 +105,9 @@ impl PageAllocator {
         // Round up to next page boundary
         let kernel_end = (kernel_end_raw + PAGE_SIZE_4KB - 1) & !(PAGE_SIZE_4KB - 1);
         
-        println!("Kernel ends at: {:#x}", kernel_end);
-        
         // Calculate size needed for page_array
         let metadata_size = total_pages * core::mem::size_of::<PageMetadata>();
         let metadata_pages = (metadata_size + PAGE_SIZE_4KB - 1) / PAGE_SIZE_4KB;
-        
-        println!("Metadata size: {} bytes ({} pages)", metadata_size, metadata_pages);
         
         // Allocate page_array right after kernel_end
         let page_array_addr = kernel_end;
@@ -135,8 +125,6 @@ impl PageAllocator {
         // Round kernel_end up to next page
         self.kernel_end = (self.kernel_end + PAGE_SIZE_4KB - 1) & !(PAGE_SIZE_4KB - 1);
         
-        println!("Logical kernel end (including metadata): {:#x}", self.kernel_end);
-        
         // Mark available memory regions
         for entry in mmap.memory_areas() {
             if entry.typ == 1 {  // Available RAM
@@ -147,7 +135,6 @@ impl PageAllocator {
         // Build free lists
         self.build_free_lists();
         
-        println!("Page allocator initialization complete");
     }
 
     /// Mark a memory region as available
