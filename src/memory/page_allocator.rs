@@ -17,21 +17,19 @@ pub enum PageSize {
 /// Page state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PageState {
-    Unavailable,      // Reserved, kernel, ACPI, etc.
-    Free4KB,          // Free 4KB page
-    Free2MB,          // Free 2MB page (head of superpage)
-    Allocated4KB,     // Allocated 4KB page
-    Allocated2MB,     // Allocated 2MB page (head of superpage)
-    PartOfFree2MB,    // Part of a free 2MB superpage (not the head)
+    Unavailable,
+    Free4KB,
+    Free2MB,
+    Allocated,
 }
 
 /// Metadata for a single page
 #[derive(Debug, Clone, Copy)]
 struct PageMetadata {
     state: PageState,
-    next: Option<usize>,  // Index in page_array for linked list
-    prev: Option<usize>,  // Index in page_array for linked list
-    counter: u16,         // For 2MB pages: count of free 4KB pages within
+    next: Option<usize>,
+    prev: Option<usize>,
+    counter: u16,  // For superpages: number of free 4KB pages
 }
 
 impl PageMetadata {
@@ -48,10 +46,9 @@ impl PageMetadata {
 /// The physical page allocator
 pub struct PageAllocator {
     page_array: Option<&'static mut [PageMetadata]>,
-    free_4kb_list: Mutex<Option<usize>>,  // Head index of 4KB free list
-    free_2mb_list: Mutex<Option<usize>>,  // Head index of 2MB free list
+    free_4kb_list: Mutex<Option<usize>>,
+    free_2mb_list: Mutex<Option<usize>>,
     kernel_end: usize,
-    total_pages: usize,
 }
 
 impl PageAllocator {
@@ -61,462 +58,291 @@ impl PageAllocator {
             free_4kb_list: Mutex::new(None),
             free_2mb_list: Mutex::new(None),
             kernel_end: 0,
-            total_pages: 0,
         }
     }
 
-    /// Get a mutable reference to the page array
-    unsafe fn get_page_array_mut(&self) -> &mut [PageMetadata] {
+    unsafe fn page_array(&self) -> &mut [PageMetadata] {
         let ptr = self.page_array.as_ref().unwrap().as_ptr() as *mut PageMetadata;
         let len = self.page_array.as_ref().unwrap().len();
         core::slice::from_raw_parts_mut(ptr, len)
     }
 
-    /// Initialize the page allocator
-    /// 
-    /// # Safety
-    /// Must be called exactly once during kernel initialization
     pub unsafe fn init(&mut self, max_physical_addr: u64, mmap: &MemoryMapTag) {
-        use crate::println;
+        // Cap at 4GB
+        let max_addr = max_physical_addr.min(4 * 1024 * 1024 * 1024);
+        let total_pages = (max_addr as usize + PAGE_SIZE_4KB - 1) / PAGE_SIZE_4KB;
         
-        // Find the actual highest usable memory from the memory map
-        let mut actual_max_addr = 0u64;
-        for entry in mmap.memory_areas() {
-            if entry.typ == 1 {  // Only consider available RAM
-                let end_addr = entry.base_addr + entry.length;
-                if end_addr > actual_max_addr {
-                    actual_max_addr = end_addr;
-                }
-            }
-        }
+        // Get kernel end
+        extern "C" { static __end: u8; }
+        let kernel_end = (&__end as *const u8 as usize + PAGE_SIZE_4KB - 1) & !(PAGE_SIZE_4KB - 1);
         
-        // Cap at 4GB to avoid excessive metadata (adjust as needed)
-        let capped_max = actual_max_addr.min(4 * 1024 * 1024 * 1024); // 4GB max
-        
-        // Calculate number of pages needed
-        let total_pages = ((capped_max as usize) + PAGE_SIZE_4KB - 1) / PAGE_SIZE_4KB;
-        self.total_pages = total_pages;
-        
-        // Get the kernel end address
-        extern "C" {
-            static __end: u8;
-        }
-        let kernel_end_raw = &__end as *const u8 as usize;
-        
-        // Round up to next page boundary
-        let kernel_end = (kernel_end_raw + PAGE_SIZE_4KB - 1) & !(PAGE_SIZE_4KB - 1);
-        
-        // Calculate size needed for page_array
+        // Allocate page_array after kernel
         let metadata_size = total_pages * core::mem::size_of::<PageMetadata>();
-        let metadata_pages = (metadata_size + PAGE_SIZE_4KB - 1) / PAGE_SIZE_4KB;
-        
-        // Allocate page_array right after kernel_end
-        let page_array_addr = kernel_end;
-        let page_array_ptr = page_array_addr as *mut PageMetadata;
+        let page_array_ptr = kernel_end as *mut PageMetadata;
         let page_array_slice = core::slice::from_raw_parts_mut(page_array_ptr, total_pages);
         
-        // Initialize all pages as Unavailable
+        // Initialize all as unavailable
         for i in 0..total_pages {
             page_array_slice[i] = PageMetadata::new();
         }
         
         self.page_array = Some(page_array_slice);
-        self.kernel_end = page_array_addr + metadata_size;
+        self.kernel_end = (kernel_end + metadata_size + PAGE_SIZE_4KB - 1) & !(PAGE_SIZE_4KB - 1);
         
-        // Round kernel_end up to next page
-        self.kernel_end = (self.kernel_end + PAGE_SIZE_4KB - 1) & !(PAGE_SIZE_4KB - 1);
-        
-        // Mark available memory regions
+        // Mark available regions from memory map
         for entry in mmap.memory_areas() {
-            if entry.typ == 1 {  // Available RAM
-                self.mark_available_region(entry.base_addr as usize, entry.length as usize);
+            if entry.typ == 1 {
+                self.mark_available(entry.base_addr as usize, entry.length as usize);
             }
         }
         
         // Build free lists
-        self.build_free_lists();
-        
+        self.build_lists();
     }
 
-    /// Mark a memory region as available
-    fn mark_available_region(&mut self, base: usize, length: usize) {
-        let page_array = self.page_array.as_mut().unwrap();
-        
+    fn mark_available(&mut self, base: usize, length: usize) {
+        let pages = self.page_array.as_mut().unwrap();
         let start_pfn = base / PAGE_SIZE_4KB;
         let end_pfn = (base + length) / PAGE_SIZE_4KB;
+        let kernel_pfn = self.kernel_end / PAGE_SIZE_4KB;
         
-        let kernel_end_pfn = self.kernel_end / PAGE_SIZE_4KB;
-        
-        let mut pfn = start_pfn;
-        while pfn < end_pfn {
-            if pfn >= page_array.len() {
-                break;
-            }
+        let mut pfn = start_pfn.max(kernel_pfn);
+        while pfn < end_pfn && pfn < pages.len() {
+            let addr = pfn * PAGE_SIZE_4KB;
             
-            // Don't mark kernel pages as available
-            if pfn < kernel_end_pfn {
-                pfn += 1;
-                continue;
-            }
-            
-            let phys_addr = pfn * PAGE_SIZE_4KB;
-            
-            // Check if this is aligned to 2MB boundary and we have 512 pages available
-            if phys_addr % PAGE_SIZE_2MB == 0 && 
-               pfn + PAGES_PER_2MB <= end_pfn && 
-               pfn + PAGES_PER_2MB <= page_array.len() {
-                
-                // Check that all 512 pages would be after kernel_end
-                let all_after_kernel = (pfn + PAGES_PER_2MB - 1) >= kernel_end_pfn;
-                
-                // Also check that the entire 2MB region is within this memory area
-                let region_start_addr = base;
-                let region_end_addr = base + length;
-                let superpage_end_addr = phys_addr + PAGE_SIZE_2MB;
-                
-                if all_after_kernel && superpage_end_addr <= region_end_addr {
-                    // Mark as 2MB superpage
-                    page_array[pfn].state = PageState::Free2MB;
-                    page_array[pfn].counter = PAGES_PER_2MB as u16;
-                    
-                    // Mark the rest as part of the superpage
-                    for i in 1..PAGES_PER_2MB {
-                        page_array[pfn + i].state = PageState::PartOfFree2MB;
-                        page_array[pfn + i].counter = 0;
-                    }
-                    
-                    pfn += PAGES_PER_2MB;
-                    continue;
+            // Try to make 2MB page
+            if addr % PAGE_SIZE_2MB == 0 && pfn + PAGES_PER_2MB <= end_pfn && pfn + PAGES_PER_2MB <= pages.len() {
+                pages[pfn].state = PageState::Free2MB;
+                pages[pfn].counter = PAGES_PER_2MB as u16;
+                for i in 1..PAGES_PER_2MB {
+                    pages[pfn + i].state = PageState::Unavailable; // Part of 2MB page
                 }
+                pfn += PAGES_PER_2MB;
+            } else {
+                pages[pfn].state = PageState::Free4KB;
+                pfn += 1;
             }
-            
-            // Otherwise mark as 4KB page if after kernel
-            if phys_addr >= self.kernel_end {
-                page_array[pfn].state = PageState::Free4KB;
-                page_array[pfn].counter = 0;
-            }
-            
-            pfn += 1;
         }
     }
 
-    /// Build the free page lists
-    fn build_free_lists(&mut self) {
-        let page_array = self.page_array.as_mut().unwrap();
+    fn build_lists(&mut self) {
+        let pages = self.page_array.as_mut().unwrap();
+        let mut head_4kb = None;
+        let mut head_2mb = None;
         
-        let mut free_4kb_head: Option<usize> = None;
-        let mut free_2mb_head: Option<usize> = None;
-        
-        for pfn in 0..page_array.len() {
-            match page_array[pfn].state {
+        for pfn in 0..pages.len() {
+            match pages[pfn].state {
                 PageState::Free4KB => {
-                    // Initialize counter for 4KB pages that could be part of superpages
-                    let superpage_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-                    if superpage_head == pfn {
-                        // This is a head of a potential superpage, initialize counter
-                        page_array[pfn].counter = 1;
-                    } else if page_array[superpage_head].state == PageState::Free4KB {
-                        // Increment the counter in the head
-                        page_array[superpage_head].counter += 1;
+                    pages[pfn].next = head_4kb;
+                    pages[pfn].prev = None;
+                    if let Some(old) = head_4kb {
+                        pages[old].prev = Some(pfn);
                     }
-                    
-                    // Add to 4KB list
-                    page_array[pfn].next = free_4kb_head;
-                    page_array[pfn].prev = None;
-                    
-                    if let Some(old_head) = free_4kb_head {
-                        page_array[old_head].prev = Some(pfn);
-                    }
-                    
-                    free_4kb_head = Some(pfn);
+                    head_4kb = Some(pfn);
                 }
                 PageState::Free2MB => {
-                    // Add to 2MB list (counter already set in mark_available_region)
-                    page_array[pfn].next = free_2mb_head;
-                    page_array[pfn].prev = None;
-                    
-                    if let Some(old_head) = free_2mb_head {
-                        page_array[old_head].prev = Some(pfn);
+                    pages[pfn].next = head_2mb;
+                    pages[pfn].prev = None;
+                    if let Some(old) = head_2mb {
+                        pages[old].prev = Some(pfn);
                     }
-                    
-                    free_2mb_head = Some(pfn);
+                    head_2mb = Some(pfn);
                 }
                 _ => {}
             }
         }
         
-        *self.free_4kb_list.lock() = free_4kb_head;
-        *self.free_2mb_list.lock() = free_2mb_head;
+        *self.free_4kb_list.lock() = head_4kb;
+        *self.free_2mb_list.lock() = head_2mb;
     }
 
-    /// Allocate a page
     pub fn allocate_page(&self, size: PageSize) -> Option<usize> {
         match size {
-            PageSize::Size4KB => self.allocate_4kb(),
-            PageSize::Size2MB => self.allocate_2mb(),
+            PageSize::Size4KB => self.alloc_4kb(),
+            PageSize::Size2MB => self.alloc_2mb(),
         }
     }
 
-    /// Allocate a 4KB page
-    fn allocate_4kb(&self) -> Option<usize> {
-        let mut list_head = self.free_4kb_list.lock();
+    fn alloc_4kb(&self) -> Option<usize> {
+        let mut head = self.free_4kb_list.lock();
         
-        if let Some(pfn) = *list_head {
-            let page_array = unsafe { self.get_page_array_mut() };
+        if let Some(pfn) = *head {
+            let pages = unsafe { self.page_array() };
             
-            // Remove from free list
-            let next = page_array[pfn].next;
-            *list_head = next;
-            
-            if let Some(next_pfn) = next {
-                page_array[next_pfn].prev = None;
+            // Remove from list
+            *head = pages[pfn].next;
+            if let Some(next) = pages[pfn].next {
+                pages[next].prev = None;
             }
             
-            // Mark as allocated
-            page_array[pfn].state = PageState::Allocated4KB;
-            page_array[pfn].next = None;
-            page_array[pfn].prev = None;
+            pages[pfn].state = PageState::Allocated;
+            pages[pfn].next = None;
+            pages[pfn].prev = None;
             
-            // Update counter in superpage head (after dropping the lock)
-            drop(list_head);
+            drop(head);
             
-            // Initialize counter if needed
-            let superpage_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-            let page_array = unsafe { self.get_page_array_mut() };
-            if page_array[superpage_head].counter == 0 {
-                page_array[superpage_head].counter = PAGES_PER_2MB as u16;
+            // Update superpage counter
+            let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
+            let pages = unsafe { self.page_array() };
+            if pages[sp_head].counter > 0 {
+                pages[sp_head].counter -= 1;
             }
             
-            self.update_superpage_counter(pfn, -1);
-            
-            Some(pfn * PAGE_SIZE_4KB)
-        } else {
-            // No 4KB pages available, try splitting a 2MB page
-            drop(list_head);
-            self.split_2mb_page()?;
-            self.allocate_4kb()
+            return Some(pfn * PAGE_SIZE_4KB);
         }
+        
+        // Try splitting 2MB page
+        drop(head);
+        self.split_2mb()?;
+        self.alloc_4kb()
     }
 
-    /// Allocate a 2MB page
-    fn allocate_2mb(&self) -> Option<usize> {
-        let mut list_head = self.free_2mb_list.lock();
+    fn alloc_2mb(&self) -> Option<usize> {
+        let mut head = self.free_2mb_list.lock();
+        let pfn = (*head)?;
         
-        if let Some(pfn) = *list_head {
-            let page_array = unsafe { self.get_page_array_mut() };
-            
-            // Remove from free list
-            let next = page_array[pfn].next;
-            *list_head = next;
-            
-            if let Some(next_pfn) = next {
-                page_array[next_pfn].prev = None;
-            }
-            
-            // Mark as allocated (head and all parts)
-            page_array[pfn].state = PageState::Allocated2MB;
-            page_array[pfn].next = None;
-            page_array[pfn].prev = None;
-            
-            // Mark all constituent pages as part of allocated 2MB page
-            for i in 1..PAGES_PER_2MB {
-                page_array[pfn + i].state = PageState::Unavailable;
-            }
-            
-            Some(pfn * PAGE_SIZE_4KB)
-        } else {
-            None
+        let pages = unsafe { self.page_array() };
+        
+        // Remove from list
+        *head = pages[pfn].next;
+        if let Some(next) = pages[pfn].next {
+            pages[next].prev = None;
         }
+        
+        pages[pfn].state = PageState::Allocated;
+        pages[pfn].next = None;
+        pages[pfn].prev = None;
+        
+        Some(pfn * PAGE_SIZE_4KB)
     }
 
-    /// Split a 2MB page into 512 4KB pages
-    fn split_2mb_page(&self) -> Option<()> {
-        let mut list_2mb = self.free_2mb_list.lock();
-        let pfn_2mb = (*list_2mb)?;
+    fn split_2mb(&self) -> Option<()> {
+        let mut head = self.free_2mb_list.lock();
+        let pfn = (*head)?;
         
-        let page_array = unsafe { self.get_page_array_mut() };
+        let pages = unsafe { self.page_array() };
         
         // Remove from 2MB list
-        let next = page_array[pfn_2mb].next;
-        *list_2mb = next;
-        
-        if let Some(next_pfn) = next {
-            page_array[next_pfn].prev = None;
+        *head = pages[pfn].next;
+        if let Some(next) = pages[pfn].next {
+            pages[next].prev = None;
         }
         
-        drop(list_2mb);
+        drop(head);
         
-        // Mark all 512 pages as Free4KB and add to 4KB list
-        let mut list_4kb = self.free_4kb_list.lock();
-        
+        // Convert to 4KB pages
+        let mut head_4kb = self.free_4kb_list.lock();
         for i in 0..PAGES_PER_2MB {
-            let pfn = pfn_2mb + i;
-            page_array[pfn].state = PageState::Free4KB;
-            page_array[pfn].next = *list_4kb;
-            page_array[pfn].prev = None;
+            let p = pfn + i;
+            pages[p].state = PageState::Free4KB;
+            pages[p].next = *head_4kb;
+            pages[p].prev = None;
             
-            if let Some(old_head) = *list_4kb {
-                page_array[old_head].prev = Some(pfn);
+            if let Some(old) = *head_4kb {
+                pages[old].prev = Some(p);
             }
-            
-            *list_4kb = Some(pfn);
+            *head_4kb = Some(p);
         }
         
-        // Set counter ONLY in head page
-        page_array[pfn_2mb].counter = PAGES_PER_2MB as u16;
+        pages[pfn].counter = PAGES_PER_2MB as u16;
         
         Some(())
     }
 
-    /// Free a page
     pub fn free_page(&self, addr: usize, size: PageSize) {
         let pfn = addr / PAGE_SIZE_4KB;
-        
         match size {
             PageSize::Size4KB => self.free_4kb(pfn),
             PageSize::Size2MB => self.free_2mb(pfn),
         }
     }
 
-    /// Free a 4KB page
     fn free_4kb(&self, pfn: usize) {
-        let page_array = unsafe { self.get_page_array_mut() };
+        let pages = unsafe { self.page_array() };
         
-        // Initialize counter if needed
-        let superpage_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-        if page_array[superpage_head].counter == 0 {
-            page_array[superpage_head].counter = PAGES_PER_2MB as u16;
+        // Update superpage counter
+        let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
+        if pages[sp_head].state == PageState::Free4KB || pages[sp_head].state == PageState::Allocated {
+            pages[sp_head].counter += 1;
         }
+        let can_merge = pages[sp_head].counter == PAGES_PER_2MB as u16;
         
-        // Update counter and check if we can merge
-        let can_merge = self.update_superpage_counter(pfn, 1);
+        // Add to 4KB list
+        pages[pfn].state = PageState::Free4KB;
+        let mut head = self.free_4kb_list.lock();
+        pages[pfn].next = *head;
+        pages[pfn].prev = None;
         
-        // Mark as free
-        page_array[pfn].state = PageState::Free4KB;
-        
-        // Add to free list
-        let mut list_head = self.free_4kb_list.lock();
-        page_array[pfn].next = *list_head;
-        page_array[pfn].prev = None;
-        
-        if let Some(old_head) = *list_head {
-            page_array[old_head].prev = Some(pfn);
+        if let Some(old) = *head {
+            pages[old].prev = Some(pfn);
         }
+        *head = Some(pfn);
+        drop(head);
         
-        *list_head = Some(pfn);
-        
-        drop(list_head);
-        
-        // Try to merge if all pages in superpage are free
+        // Try to merge
         if can_merge {
-            self.try_merge_superpage(pfn);
+            self.try_merge(pfn);
         }
     }
 
-    /// Free a 2MB page
     fn free_2mb(&self, pfn: usize) {
-        let page_array = unsafe { self.get_page_array_mut() };
+        let pages = unsafe { self.page_array() };
         
-        page_array[pfn].state = PageState::Free2MB;
-        page_array[pfn].counter = PAGES_PER_2MB as u16;
+        pages[pfn].state = PageState::Free2MB;
+        pages[pfn].counter = PAGES_PER_2MB as u16;
         
-        // Mark all constituent pages as part of free 2MB
-        for i in 1..PAGES_PER_2MB {
-            page_array[pfn + i].state = PageState::PartOfFree2MB;
+        let mut head = self.free_2mb_list.lock();
+        pages[pfn].next = *head;
+        pages[pfn].prev = None;
+        
+        if let Some(old) = *head {
+            pages[old].prev = Some(pfn);
         }
-        
-        let mut list_head = self.free_2mb_list.lock();
-        page_array[pfn].next = *list_head;
-        page_array[pfn].prev = None;
-        
-        if let Some(old_head) = *list_head {
-            page_array[old_head].prev = Some(pfn);
-        }
-        
-        *list_head = Some(pfn);
+        *head = Some(pfn);
     }
 
-    /// Update the counter in the superpage head
-    /// Returns true if the superpage is now fully free
-    fn update_superpage_counter(&self, pfn: usize, delta: i32) -> bool {
-        let superpage_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-        let page_array = unsafe { self.get_page_array_mut() };
+    fn try_merge(&self, pfn: usize) {
+        let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
+        let pages = unsafe { self.page_array() };
         
-        // Only update counter if we're tracking a potential superpage
-        // Check if the head is in a state where counter is meaningful
-        match page_array[superpage_head].state {
-            PageState::Free4KB | PageState::Allocated4KB | PageState::Free2MB => {
-                let new_counter = (page_array[superpage_head].counter as i32 + delta) as u16;
-                page_array[superpage_head].counter = new_counter;
-                new_counter == PAGES_PER_2MB as u16
-            }
-            _ => false
-        }
-    }
-
-    /// Try to merge a superpage back to 2MB
-    fn try_merge_superpage(&self, pfn: usize) {
-        let superpage_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-        let page_array = unsafe { self.get_page_array_mut() };
-        
-        // Check if counter indicates all pages are free
-        if page_array[superpage_head].counter != PAGES_PER_2MB as u16 {
-            return;
-        }
-        
-        // Check if all pages are actually free
+        // Check all pages are free
         for i in 0..PAGES_PER_2MB {
-            if page_array[superpage_head + i].state != PageState::Free4KB {
+            if pages[sp_head + i].state != PageState::Free4KB {
                 return;
             }
         }
         
-        // Remove all 4KB pages from the free list
+        // Remove all from 4KB list
         for i in 0..PAGES_PER_2MB {
-            let pfn = superpage_head + i;
-            self.remove_from_4kb_list(pfn);
+            let p = sp_head + i;
+            let prev = pages[p].prev;
+            let next = pages[p].next;
+            
+            if let Some(prev_p) = prev {
+                pages[prev_p].next = next;
+            } else {
+                *self.free_4kb_list.lock() = next;
+            }
+            
+            if let Some(next_p) = next {
+                pages[next_p].prev = prev;
+            }
+            
+            pages[p].next = None;
+            pages[p].prev = None;
         }
         
         // Add as 2MB page
-        page_array[superpage_head].state = PageState::Free2MB;
-        page_array[superpage_head].counter = PAGES_PER_2MB as u16;
+        pages[sp_head].state = PageState::Free2MB;
+        pages[sp_head].counter = PAGES_PER_2MB as u16;
         
-        // Mark other pages as part of 2MB
-        for i in 1..PAGES_PER_2MB {
-            page_array[superpage_head + i].state = PageState::PartOfFree2MB;
+        let mut head = self.free_2mb_list.lock();
+        pages[sp_head].next = *head;
+        pages[sp_head].prev = None;
+        
+        if let Some(old) = *head {
+            pages[old].prev = Some(sp_head);
         }
-        
-        let mut list_head = self.free_2mb_list.lock();
-        page_array[superpage_head].next = *list_head;
-        page_array[superpage_head].prev = None;
-        
-        if let Some(old_head) = *list_head {
-            page_array[old_head].prev = Some(superpage_head);
-        }
-        
-        *list_head = Some(superpage_head);
-    }
-
-    /// Remove a page from the 4KB free list
-    fn remove_from_4kb_list(&self, pfn: usize) {
-        let page_array = unsafe { self.get_page_array_mut() };
-        
-        let prev = page_array[pfn].prev;
-        let next = page_array[pfn].next;
-        
-        if let Some(prev_pfn) = prev {
-            page_array[prev_pfn].next = next;
-        } else {
-            // This is the head
-            let mut list_head = self.free_4kb_list.lock();
-            *list_head = next;
-        }
-        
-        if let Some(next_pfn) = next {
-            page_array[next_pfn].prev = prev;
-        }
-        
-        page_array[pfn].next = None;
-        page_array[pfn].prev = None;
+        *head = Some(sp_head);
     }
 }
