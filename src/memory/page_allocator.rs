@@ -210,6 +210,16 @@ impl PageAllocator {
         for pfn in 0..page_array.len() {
             match page_array[pfn].state {
                 PageState::Free4KB => {
+                    // Initialize counter for 4KB pages that could be part of superpages
+                    let superpage_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
+                    if superpage_head == pfn {
+                        // This is a head of a potential superpage, initialize counter
+                        page_array[pfn].counter = 1;
+                    } else if page_array[superpage_head].state == PageState::Free4KB {
+                        // Increment the counter in the head
+                        page_array[superpage_head].counter += 1;
+                    }
+                    
                     // Add to 4KB list
                     page_array[pfn].next = free_4kb_head;
                     page_array[pfn].prev = None;
@@ -221,7 +231,7 @@ impl PageAllocator {
                     free_4kb_head = Some(pfn);
                 }
                 PageState::Free2MB => {
-                    // Add to 2MB list
+                    // Add to 2MB list (counter already set in mark_available_region)
                     page_array[pfn].next = free_2mb_head;
                     page_array[pfn].prev = None;
                     
