@@ -38,7 +38,6 @@ pub extern "C" fn rust_main() -> ! {
         // Check if we can read/write to see CPU state
         let rflags: u64;
         core::arch::asm!("pushfq; pop {}", out(reg) rflags);
-        println!("RFLAGS: {:#x}", rflags);
         
         // Initialize GDT and TSS
         gdt::init_cpu();
@@ -78,7 +77,6 @@ fn test_allocator() {
     vec.push(3);
     
     // Test larger allocation
-    println!("Testing larger Box allocation...");
     let large_box = Box::new([0u8; 1024]);
     
 }
