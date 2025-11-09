@@ -7,7 +7,7 @@ mod error;
 mod gdt;
 mod interrupt;
 mod serial;
-mod mem;
+mod memory;
 
 use core::panic::PanicInfo;
 
