@@ -18,9 +18,7 @@ static mut PAGE_ALLOCATOR: PageAllocator = PageAllocator::new();
 /// Must be called exactly once during kernel initialization
 pub unsafe fn init(multiboot_info_addr: usize) {
     use crate::println;
-    
-    println!("\n=== Initializing Memory Allocator ===");
-    
+        
     // Parse multiboot information
     let boot_info = multiboot2::BootInfo::parse(multiboot_info_addr as *const u8)
         .expect("Failed to parse multiboot info");
@@ -36,16 +34,11 @@ pub unsafe fn init(multiboot_info_addr: usize) {
         if end_addr > max_addr {
             max_addr = end_addr;
         }
-        println!("Memory region: base={:#x}, len={:#x}, type={}", 
-                 entry.base_addr, entry.length, entry.typ);
     }
-    
-    println!("Maximum physical address: {:#x}", max_addr);
-    
+        
     // Initialize the page allocator
     PAGE_ALLOCATOR.init(max_addr, mmap_tag);
     
-    println!("Memory allocator initialized successfully");
 }
 
 /// Get a reference to the global page allocator
