@@ -19,9 +19,10 @@ pub enum PageSize {
 enum PageState {
     Unavailable,      // Reserved, kernel, ACPI, etc.
     Free4KB,          // Free 4KB page
-    Free2MB,          // Free 2MB page
+    Free2MB,          // Free 2MB page (head of superpage)
     Allocated4KB,     // Allocated 4KB page
     Allocated2MB,     // Allocated 2MB page (head of superpage)
+    PartOfFree2MB,    // Part of a free 2MB superpage (not the head)
 }
 
 /// Metadata for a single page
@@ -146,25 +147,45 @@ impl PageAllocator {
         
         let kernel_end_pfn = self.kernel_end / PAGE_SIZE_4KB;
         
-        for pfn in start_pfn..end_pfn {
+        let mut pfn = start_pfn;
+        while pfn < end_pfn {
             if pfn >= page_array.len() {
                 break;
             }
             
             // Don't mark kernel pages as available
             if pfn < kernel_end_pfn {
+                pfn += 1;
                 continue;
             }
             
-            // Check if this is aligned to 2MB boundary
+            // Check if this is aligned to 2MB boundary and we have 512 pages available
             let phys_addr = pfn * PAGE_SIZE_4KB;
-            if phys_addr % PAGE_SIZE_2MB == 0 && pfn + PAGES_PER_2MB <= end_pfn {
-                // This can be a 2MB page
-                page_array[pfn].state = PageState::Free2MB;
-            } else if phys_addr >= self.kernel_end {
-                // Mark as 4KB page
+            if phys_addr % PAGE_SIZE_2MB == 0 && pfn + PAGES_PER_2MB <= end_pfn && pfn + PAGES_PER_2MB <= page_array.len() {
+                // Check that all 512 pages would be after kernel_end
+                let all_after_kernel = (pfn + PAGES_PER_2MB - 1) >= kernel_end_pfn;
+                
+                if all_after_kernel {
+                    // Mark as 2MB superpage
+                    page_array[pfn].state = PageState::Free2MB;
+                    page_array[pfn].counter = PAGES_PER_2MB as u16;
+                    
+                    // Mark the rest as part of the superpage
+                    for i in 1..PAGES_PER_2MB {
+                        page_array[pfn + i].state = PageState::PartOfFree2MB;
+                    }
+                    
+                    pfn += PAGES_PER_2MB;
+                    continue;
+                }
+            }
+            
+            // Otherwise mark as 4KB page if after kernel
+            if phys_addr >= self.kernel_end {
                 page_array[pfn].state = PageState::Free4KB;
             }
+            
+            pfn += 1;
         }
     }
 
@@ -189,8 +210,7 @@ impl PageAllocator {
                     free_4kb_head = Some(pfn);
                 }
                 PageState::Free2MB => {
-                    // Add to 2MB list and initialize counter
-                    page_array[pfn].counter = PAGES_PER_2MB as u16;
+                    // Add to 2MB list
                     page_array[pfn].next = free_2mb_head;
                     page_array[pfn].prev = None;
                     
@@ -264,10 +284,15 @@ impl PageAllocator {
                 page_array[next_pfn].prev = None;
             }
             
-            // Mark as allocated
+            // Mark as allocated (head and all parts)
             page_array[pfn].state = PageState::Allocated2MB;
             page_array[pfn].next = None;
             page_array[pfn].prev = None;
+            
+            // Mark all constituent pages as part of allocated 2MB page
+            for i in 1..PAGES_PER_2MB {
+                page_array[pfn + i].state = PageState::Unavailable;
+            }
             
             Some(pfn * PAGE_SIZE_4KB)
         } else {
@@ -308,7 +333,7 @@ impl PageAllocator {
             *list_4kb = Some(pfn);
         }
         
-        // Set counter in head page
+        // Set counter ONLY in head page
         page_array[pfn_2mb].counter = PAGES_PER_2MB as u16;
         
         Some(())
@@ -328,7 +353,7 @@ impl PageAllocator {
     fn free_4kb(&self, pfn: usize) {
         let page_array = unsafe { self.get_page_array_mut() };
         
-        // Update counter
+        // Update counter and check if we can merge
         let can_merge = self.update_superpage_counter(pfn, 1);
         
         // Mark as free
@@ -360,6 +385,11 @@ impl PageAllocator {
         page_array[pfn].state = PageState::Free2MB;
         page_array[pfn].counter = PAGES_PER_2MB as u16;
         
+        // Mark all constituent pages as part of free 2MB
+        for i in 1..PAGES_PER_2MB {
+            page_array[pfn + i].state = PageState::PartOfFree2MB;
+        }
+        
         let mut list_head = self.free_2mb_list.lock();
         page_array[pfn].next = *list_head;
         page_array[pfn].prev = None;
@@ -388,7 +418,12 @@ impl PageAllocator {
         let superpage_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
         let page_array = unsafe { self.get_page_array_mut() };
         
-        // Check if all pages are free
+        // Check if counter indicates all pages are free
+        if page_array[superpage_head].counter != PAGES_PER_2MB as u16 {
+            return;
+        }
+        
+        // Check if all pages are actually free
         for i in 0..PAGES_PER_2MB {
             if page_array[superpage_head + i].state != PageState::Free4KB {
                 return;
@@ -404,6 +439,11 @@ impl PageAllocator {
         // Add as 2MB page
         page_array[superpage_head].state = PageState::Free2MB;
         page_array[superpage_head].counter = PAGES_PER_2MB as u16;
+        
+        // Mark other pages as part of 2MB
+        for i in 1..PAGES_PER_2MB {
+            page_array[superpage_head + i].state = PageState::PartOfFree2MB;
+        }
         
         let mut list_head = self.free_2mb_list.lock();
         page_array[superpage_head].next = *list_head;
