@@ -3,7 +3,7 @@
 pub mod multiboot2;
 pub mod page_allocator;
 pub mod mutex;
-// pub mod test;
+pub mod test;
 
 use core::alloc::{GlobalAlloc, Layout};
 use core::ptr::{self, NonNull};
