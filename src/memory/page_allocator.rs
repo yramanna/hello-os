@@ -256,8 +256,16 @@ impl PageAllocator {
             page_array[pfn].next = None;
             page_array[pfn].prev = None;
             
-            // Update counter in superpage head
+            // Update counter in superpage head (after dropping the lock)
             drop(list_head);
+            
+            // Initialize counter if needed
+            let superpage_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
+            let page_array = unsafe { self.get_page_array_mut() };
+            if page_array[superpage_head].counter == 0 {
+                page_array[superpage_head].counter = PAGES_PER_2MB as u16;
+            }
+            
             self.update_superpage_counter(pfn, -1);
             
             Some(pfn * PAGE_SIZE_4KB)
@@ -353,6 +361,12 @@ impl PageAllocator {
     fn free_4kb(&self, pfn: usize) {
         let page_array = unsafe { self.get_page_array_mut() };
         
+        // Initialize counter if needed
+        let superpage_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
+        if page_array[superpage_head].counter == 0 {
+            page_array[superpage_head].counter = PAGES_PER_2MB as u16;
+        }
+        
         // Update counter and check if we can merge
         let can_merge = self.update_superpage_counter(pfn, 1);
         
@@ -407,10 +421,16 @@ impl PageAllocator {
         let superpage_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
         let page_array = unsafe { self.get_page_array_mut() };
         
-        let new_counter = (page_array[superpage_head].counter as i32 + delta) as u16;
-        page_array[superpage_head].counter = new_counter;
-        
-        new_counter == PAGES_PER_2MB as u16
+        // Only update counter if we're tracking a potential superpage
+        // Check if the head is in a state where counter is meaningful
+        match page_array[superpage_head].state {
+            PageState::Free4KB | PageState::Allocated4KB | PageState::Free2MB => {
+                let new_counter = (page_array[superpage_head].counter as i32 + delta) as u16;
+                page_array[superpage_head].counter = new_counter;
+                new_counter == PAGES_PER_2MB as u16
+            }
+            _ => false
+        }
     }
 
     /// Try to merge a superpage back to 2MB
