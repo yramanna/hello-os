@@ -50,7 +50,7 @@ pub extern "C" fn rust_main() -> ! {
         println!("Initializing memory allocator...");
         let boot_info_addr = _bootinfo;
         println!("Multiboot info at: {:#x}", boot_info_addr);
-        mem::init(boot_info_addr);
+        memory::init(boot_info_addr);
         
         // Initialize interrupt controllers and IDT
         println!("Initializing interrupts...");
