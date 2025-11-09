@@ -53,7 +53,7 @@ pub extern "C" fn rust_main() -> ! {
         interrupt::init_cpu();
                 
         // Test the allocator
-        test_all();
+        memory::test::test_all();
         
         // Infinite loop - timer interrupts will fire and print dots
         loop {
