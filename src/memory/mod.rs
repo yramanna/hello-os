@@ -11,7 +11,7 @@ use core::ptr::null_mut;
 use page_allocator::{PageAllocator, PageSize};
 
 /// The global page allocator instance
-static mut PAGE_ALLOCATOR: PageAllocator = PageAllocator::new();
+static PAGE_ALLOCATOR: PageAllocator = PageAllocator::new();
 
 /// Initialize the memory subsystem
 /// 
@@ -43,7 +43,7 @@ pub unsafe fn init(multiboot_info_addr: usize) {
 
 /// Get a reference to the global page allocator
 pub fn get_allocator() -> &'static PageAllocator {
-    unsafe { &PAGE_ALLOCATOR }
+    &PAGE_ALLOCATOR
 }
 
 /// Simple global allocator that wastes a full 4KB page per allocation
