@@ -85,8 +85,8 @@ impl HeapAllocator {
 
     /// Initialize the heap allocator by allocating initial pages
     pub unsafe fn init(&self) {
-        // Allocate some initial heap space (e.g., 16 pages = 64KB)
-        const INITIAL_HEAP_PAGES: usize = 16;
+        // Allocate some initial heap space (32 pages = 128KB for more headroom)
+        const INITIAL_HEAP_PAGES: usize = 32;
         
         for _ in 0..INITIAL_HEAP_PAGES {
             if let Some(page_addr) = PAGE_ALLOCATOR.allocate_page(PageSize::Size4KB) {
@@ -117,28 +117,25 @@ impl HeapAllocator {
         
         // Check if head works
         if let Some(alloc_start) = Self::alloc_from_region(&*current, size, align) {
-            let next = current.next.take();
-            let region_start = current.start_addr();
             let region_end = current.end_addr();
+            let next = current.next.take();
             *head = next;
             return Some((alloc_start, region_end));
         }
 
         // Check rest of list
-        loop {
-            let next = match current.next.as_mut() {
-                Some(next) => next,
-                None => return None,
-            };
-
-            if let Some(alloc_start) = Self::alloc_from_region(&*next, size, align) {
+        while let Some(ref mut next) = current.next {
+            if let Some(alloc_start) = Self::alloc_from_region(&**next, size, align) {
                 let region_end = next.end_addr();
-                current.next = next.next.take();
+                let next_next = next.next.take();
+                current.next = next_next;
                 return Some((alloc_start, region_end));
+            } else {
+                current = current.next.as_mut()?;
             }
-
-            current = current.next.as_mut()?;
         }
+        
+        None
     }
 
     /// Try to allocate from a region
