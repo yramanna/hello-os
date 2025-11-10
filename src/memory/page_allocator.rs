@@ -245,11 +245,10 @@ impl PageAllocator {
             
             drop(head);
             
-            // Update superpage counter - decrement ONLY if counter > 0
-            // This tracks pages that came from a split 2MB page
+            // Update superpage counter
             let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-            if sp_head < pages.len() && pages[sp_head].counter > 0 {
-                pages[sp_head].counter = pages[sp_head].counter - 1;
+            if sp_head < pages.len() {
+                pages[sp_head].counter = pages[sp_head].counter.saturating_sub(1);
             }
             
             return Some(pfn * PAGE_SIZE_4KB);
@@ -306,10 +305,7 @@ impl PageAllocator {
         // Convert to 4KB pages and add to 4KB list
         let mut head_4kb = self.free_4kb_list.lock();
         
-        // Set counter to 512 - all pages from this split are free
-        // As they get allocated, counter decrements
-        // When freed back, counter increments
-        // When counter reaches 512 again, we merge
+        // Set up the first page with counter tracking
         pages[pfn].counter = PAGES_PER_2MB as u16;
         
         for i in 0..PAGES_PER_2MB {
@@ -355,8 +351,9 @@ impl PageAllocator {
         // Update superpage counter (only on superpage head)
         let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
         let can_merge = if sp_head < pages.len() {
+            // Only track counter on the superpage head page
             // Increment the counter for this free
-            pages[sp_head].counter = pages[sp_head].counter + 1;
+            pages[sp_head].counter = pages[sp_head].counter.saturating_add(1);
             pages[sp_head].counter == PAGES_PER_2MB as u16
         } else {
             false
@@ -412,49 +409,31 @@ impl PageAllocator {
         let page_guard = self.page_array.lock();
         let pages = page_guard.as_slice();
         
-        // Verify counter says all pages are free
-        if pages[sp_head].counter != PAGES_PER_2MB as u16 {
-            return;
-        }
-        
-        // Check all pages are actually free in the state
+        // Check all pages are free
         for i in 0..PAGES_PER_2MB {
-            let idx = sp_head + i;
-            if idx >= pages.len() || pages[idx].state != PageState::Free4KB {
+            if pages[sp_head + i].state != PageState::Free4KB {
                 return;
             }
         }
         
         // Remove all from 4KB list
-        let mut head_guard = self.free_4kb_list.lock();
         for i in 0..PAGES_PER_2MB {
             let p = sp_head + i;
             let prev = pages[p].prev;
             let next = pages[p].next;
             
             if let Some(prev_p) = prev {
-                if prev_p < pages.len() {
-                    pages[prev_p].next = next;
-                }
+                pages[prev_p].next = next;
             } else {
-                // This page was the head of the list
-                *head_guard = next;
+                *self.free_4kb_list.lock() = next;
             }
             
             if let Some(next_p) = next {
-                if next_p < pages.len() {
-                    pages[next_p].prev = prev;
-                }
+                pages[next_p].prev = prev;
             }
             
             pages[p].next = None;
             pages[p].prev = None;
-        }
-        drop(head_guard);
-        
-        // Mark non-head pages as unavailable (part of 2MB page)
-        for i in 1..PAGES_PER_2MB {
-            pages[sp_head + i].state = PageState::Unavailable;
         }
         
         // Add as 2MB page
@@ -466,9 +445,7 @@ impl PageAllocator {
         pages[sp_head].prev = None;
         
         if let Some(old) = *head {
-            if old < pages.len() {
-                pages[old].prev = Some(sp_head);
-            }
+            pages[old].prev = Some(sp_head);
         }
         *head = Some(sp_head);
     }
