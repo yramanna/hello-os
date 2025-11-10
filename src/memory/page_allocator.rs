@@ -85,9 +85,21 @@ impl PageAllocator {
     pub unsafe fn init(&self, max_physical_addr: u64, mmap: &MemoryMapTag) {
         use crate::println;
         
-        // Cap at 4GB
-        let max_addr = max_physical_addr.min(4 * 1024 * 1024 * 1024);
-        let total_pages = (max_addr as usize + PAGE_SIZE_4KB - 1) / PAGE_SIZE_4KB;
+        // Find the actual maximum usable address (only consider type 1 = available)
+        // Don't track reserved regions at 4GB boundary
+        let mut actual_max = 0usize;
+        for entry in mmap.memory_areas() {
+            if entry.typ == 1 {  // Only count available memory
+                let end_addr = (entry.base_addr + entry.length) as usize;
+                if end_addr > actual_max {
+                    actual_max = end_addr;
+                }
+            }
+        }
+        
+        // Round up to nearest 2MB to make allocation simpler
+        let max_addr = (actual_max + PAGE_SIZE_2MB - 1) & !(PAGE_SIZE_2MB - 1);
+        let total_pages = max_addr / PAGE_SIZE_4KB;
         
         println!("Total pages to track: {}", total_pages);
         
