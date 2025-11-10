@@ -83,16 +83,24 @@ impl PageAllocator {
     }
 
     pub unsafe fn init(&self, max_physical_addr: u64, mmap: &MemoryMapTag) {
+        use crate::println;
+        
         // Cap at 4GB
         let max_addr = max_physical_addr.min(4 * 1024 * 1024 * 1024);
         let total_pages = (max_addr as usize + PAGE_SIZE_4KB - 1) / PAGE_SIZE_4KB;
+        
+        println!("Total pages to track: {}", total_pages);
         
         // Get kernel end
         extern "C" { static __end: u8; }
         let kernel_end = (&__end as *const u8 as usize + PAGE_SIZE_4KB - 1) & !(PAGE_SIZE_4KB - 1);
         
+        println!("Kernel end: {:#x}", kernel_end);
+        
         // Allocate page_array after kernel
         let metadata_size = total_pages * core::mem::size_of::<PageMetadata>();
+        println!("Metadata size: {} bytes ({} KB)", metadata_size, metadata_size / 1024);
+        
         let page_array_ptr = kernel_end as *mut PageMetadata;
         let page_array_slice = core::slice::from_raw_parts_mut(page_array_ptr, total_pages);
         
@@ -110,6 +118,8 @@ impl PageAllocator {
         let final_kernel_end = (kernel_end + metadata_size + PAGE_SIZE_4KB - 1) & !(PAGE_SIZE_4KB - 1);
         *self.kernel_end.lock() = final_kernel_end;
         
+        println!("Final kernel end (after metadata): {:#x}", final_kernel_end);
+        
         // Mark available regions from memory map
         for entry in mmap.memory_areas() {
             if entry.typ == 1 {
@@ -119,6 +129,24 @@ impl PageAllocator {
         
         // Build free lists
         self.build_lists();
+        
+        // Count free pages
+        let mut free_4kb = 0;
+        let mut free_2mb = 0;
+        let page_guard = self.page_array.lock();
+        let pages = page_guard.as_slice();
+        for pfn in 0..pages.len() {
+            match pages[pfn].state {
+                PageState::Free4KB => free_4kb += 1,
+                PageState::Free2MB => free_2mb += 1,
+                _ => {}
+            }
+        }
+        drop(page_guard);
+        
+        println!("Free 4KB pages: {}", free_4kb);
+        println!("Free 2MB pages: {}", free_2mb);
+        println!("Total free memory: {} MB", (free_4kb * 4 + free_2mb * 2048) / 1024);
     }
 
     fn mark_available(&self, base: usize, length: usize) {
@@ -214,8 +242,15 @@ impl PageAllocator {
             return Some(pfn * PAGE_SIZE_4KB);
         }
         
-        // Try splitting 2MB page
+        // No 4KB pages, try splitting 2MB page
         drop(head);
+        
+        // Check if we have any 2MB pages to split
+        let has_2mb = self.free_2mb_list.lock().is_some();
+        if !has_2mb {
+            return None;
+        }
+        
         self.split_2mb()?;
         self.alloc_4kb()
     }
