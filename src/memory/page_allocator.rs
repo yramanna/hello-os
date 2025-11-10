@@ -82,7 +82,7 @@ impl PageAllocator {
         }
     }
 
-    pub unsafe fn init(&self, max_physical_addr: u64, mmap: &MemoryMapTag) {
+    pub unsafe fn init(&self, mmap: &MemoryMapTag) {
         use crate::println;
         
         // Find the actual maximum usable address (only consider type 1 = available)
