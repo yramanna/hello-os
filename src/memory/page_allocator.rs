@@ -122,7 +122,8 @@ impl PageAllocator {
     }
 
     fn mark_available(&self, base: usize, length: usize) {
-        let pages = self.page_array.lock().as_slice();
+        let page_guard = self.page_array.lock();
+        let pages = page_guard.as_slice();
         let start_pfn = base / PAGE_SIZE_4KB;
         let end_pfn = (base + length) / PAGE_SIZE_4KB;
         let kernel_pfn = *self.kernel_end.lock() / PAGE_SIZE_4KB;
@@ -147,7 +148,8 @@ impl PageAllocator {
     }
 
     fn build_lists(&self) {
-        let pages = self.page_array.lock().as_slice();
+        let page_guard = self.page_array.lock();
+        let pages = page_guard.as_slice();
         let mut head_4kb = None;
         let mut head_2mb = None;
         
@@ -188,7 +190,8 @@ impl PageAllocator {
         let mut head = self.free_4kb_list.lock();
         
         if let Some(pfn) = *head {
-            let pages = self.page_array.lock().as_slice();
+            let page_guard = self.page_array.lock();
+            let pages = page_guard.as_slice();
             
             // Remove from list
             *head = pages[pfn].next;
@@ -204,7 +207,6 @@ impl PageAllocator {
             
             // Update superpage counter
             let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-            let pages = self.page_array.lock().as_slice();
             if pages[sp_head].counter > 0 {
                 pages[sp_head].counter -= 1;
             }
@@ -222,7 +224,8 @@ impl PageAllocator {
         let mut head = self.free_2mb_list.lock();
         let pfn = (*head)?;
         
-        let pages = self.page_array.lock().as_slice();
+        let page_guard = self.page_array.lock();
+        let pages = page_guard.as_slice();
         
         // Remove from list
         *head = pages[pfn].next;
@@ -241,7 +244,8 @@ impl PageAllocator {
         let mut head = self.free_2mb_list.lock();
         let pfn = (*head)?;
         
-        let pages = self.page_array.lock().as_slice();
+        let page_guard = self.page_array.lock();
+        let pages = page_guard.as_slice();
         
         // Remove from 2MB list
         *head = pages[pfn].next;
@@ -252,7 +256,6 @@ impl PageAllocator {
         drop(head);
         
         // Convert to 4KB pages
-        let pages = self.page_array.lock().as_slice();
         let mut head_4kb = self.free_4kb_list.lock();
         for i in 0..PAGES_PER_2MB {
             let p = pfn + i;
@@ -280,7 +283,8 @@ impl PageAllocator {
     }
 
     fn free_4kb(&self, pfn: usize) {
-        let pages = self.page_array.lock().as_slice();
+        let page_guard = self.page_array.lock();
+        let pages = page_guard.as_slice();
         
         // Update superpage counter
         let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
@@ -300,6 +304,7 @@ impl PageAllocator {
         }
         *head = Some(pfn);
         drop(head);
+        drop(page_guard);
         
         // Try to merge
         if can_merge {
@@ -308,7 +313,8 @@ impl PageAllocator {
     }
 
     fn free_2mb(&self, pfn: usize) {
-        let pages = self.page_array.lock().as_slice();
+        let page_guard = self.page_array.lock();
+        let pages = page_guard.as_slice();
         
         pages[pfn].state = PageState::Free2MB;
         pages[pfn].counter = PAGES_PER_2MB as u16;
@@ -325,7 +331,8 @@ impl PageAllocator {
 
     fn try_merge(&self, pfn: usize) {
         let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-        let pages = self.page_array.lock().as_slice();
+        let page_guard = self.page_array.lock();
+        let pages = page_guard.as_slice();
         
         // Check all pages are free
         for i in 0..PAGES_PER_2MB {
