@@ -333,12 +333,17 @@ impl PageAllocator {
         let page_guard = self.page_array.lock();
         let pages = page_guard.as_slice();
         
+        // Check if already free
+        if pages[pfn].state == PageState::Free4KB {
+            return; // Already freed, prevent double-free
+        }
+        
         // Update superpage counter
         let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-        if pages[sp_head].state == PageState::Free4KB || pages[sp_head].state == PageState::Allocated {
+        if sp_head < pages.len() && (pages[sp_head].state == PageState::Free4KB || pages[sp_head].state == PageState::Allocated) {
             pages[sp_head].counter += 1;
         }
-        let can_merge = pages[sp_head].counter == PAGES_PER_2MB as u16;
+        let can_merge = sp_head < pages.len() && pages[sp_head].counter == PAGES_PER_2MB as u16;
         
         // Add to 4KB list
         pages[pfn].state = PageState::Free4KB;
@@ -360,20 +365,28 @@ impl PageAllocator {
     }
 
     fn free_2mb(&self, pfn: usize) {
+        // Make sure pfn is 2MB aligned
+        let aligned_pfn = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
+        
         let page_guard = self.page_array.lock();
         let pages = page_guard.as_slice();
         
-        pages[pfn].state = PageState::Free2MB;
-        pages[pfn].counter = PAGES_PER_2MB as u16;
+        // Check if already in a valid state
+        if pages[aligned_pfn].state == PageState::Free2MB {
+            return; // Already freed
+        }
+        
+        pages[aligned_pfn].state = PageState::Free2MB;
+        pages[aligned_pfn].counter = PAGES_PER_2MB as u16;
         
         let mut head = self.free_2mb_list.lock();
-        pages[pfn].next = *head;
-        pages[pfn].prev = None;
+        pages[aligned_pfn].next = *head;
+        pages[aligned_pfn].prev = None;
         
         if let Some(old) = *head {
-            pages[old].prev = Some(pfn);
+            pages[old].prev = Some(aligned_pfn);
         }
-        *head = Some(pfn);
+        *head = Some(aligned_pfn);
     }
 
     fn try_merge(&self, pfn: usize) {
