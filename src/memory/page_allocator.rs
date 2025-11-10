@@ -247,8 +247,8 @@ impl PageAllocator {
             
             // Update superpage counter
             let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-            if pages[sp_head].counter > 0 {
-                pages[sp_head].counter -= 1;
+            if sp_head < pages.len() {
+                pages[sp_head].counter = pages[sp_head].counter.saturating_sub(1);
             }
             
             return Some(pfn * PAGE_SIZE_4KB);
@@ -302,8 +302,12 @@ impl PageAllocator {
         
         drop(head);
         
-        // Convert to 4KB pages
+        // Convert to 4KB pages and add to 4KB list
         let mut head_4kb = self.free_4kb_list.lock();
+        
+        // Set up the first page with counter tracking
+        pages[pfn].counter = PAGES_PER_2MB as u16;
+        
         for i in 0..PAGES_PER_2MB {
             let p = pfn + i;
             pages[p].state = PageState::Free4KB;
@@ -315,8 +319,6 @@ impl PageAllocator {
             }
             *head_4kb = Some(p);
         }
-        
-        pages[pfn].counter = PAGES_PER_2MB as u16;
         
         Some(())
     }
@@ -333,26 +335,39 @@ impl PageAllocator {
         let page_guard = self.page_array.lock();
         let pages = page_guard.as_slice();
         
+        // Bounds check
+        if pfn >= pages.len() {
+            return;
+        }
+        
         // Check if already free
         if pages[pfn].state == PageState::Free4KB {
             return; // Already freed, prevent double-free
         }
         
-        // Update superpage counter
+        // Mark as free first
+        pages[pfn].state = PageState::Free4KB;
+        
+        // Update superpage counter (only on superpage head)
         let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-        if sp_head < pages.len() && (pages[sp_head].state == PageState::Free4KB || pages[sp_head].state == PageState::Allocated) {
-            pages[sp_head].counter += 1;
-        }
-        let can_merge = sp_head < pages.len() && pages[sp_head].counter == PAGES_PER_2MB as u16;
+        let can_merge = if sp_head < pages.len() {
+            // Only track counter on the superpage head page
+            // Increment the counter for this free
+            pages[sp_head].counter = pages[sp_head].counter.saturating_add(1);
+            pages[sp_head].counter == PAGES_PER_2MB as u16
+        } else {
+            false
+        };
         
         // Add to 4KB list
-        pages[pfn].state = PageState::Free4KB;
         let mut head = self.free_4kb_list.lock();
         pages[pfn].next = *head;
         pages[pfn].prev = None;
         
         if let Some(old) = *head {
-            pages[old].prev = Some(pfn);
+            if old < pages.len() {
+                pages[old].prev = Some(pfn);
+            }
         }
         *head = Some(pfn);
         drop(head);
