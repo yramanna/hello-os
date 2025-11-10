@@ -19,26 +19,44 @@ static PAGE_ALLOCATOR: PageAllocator = PageAllocator::new();
 /// Must be called exactly once during kernel initialization
 pub unsafe fn init(multiboot_info_addr: usize) {
     use crate::println;
-        
+    
+    println!("Initializing memory allocator...");
+    println!("Multiboot info at: {:#x}", multiboot_info_addr);
+    
     // Parse multiboot information
     let boot_info = multiboot2::BootInfo::parse(multiboot_info_addr as *const u8)
         .expect("Failed to parse multiboot info");
+    
+    println!("Boot info parsed successfully");
     
     // Find the memory map tag
     let mmap_tag = boot_info.memory_map_tag()
         .expect("No memory map found in multiboot info");
     
+    println!("Memory map found");
+    
     // Find maximum physical address
     let mut max_addr = 0u64;
+    let mut total_available = 0u64;
     for entry in mmap_tag.memory_areas() {
+        println!("Memory region: base={:#x}, len={:#x}, type={}", 
+                 entry.base_addr, entry.length, entry.typ);
         let end_addr = entry.base_addr + entry.length;
         if end_addr > max_addr {
             max_addr = end_addr;
         }
+        if entry.typ == 1 {
+            total_available += entry.length;
+        }
     }
-        
+    
+    println!("Max physical address: {:#x}", max_addr);
+    println!("Total available memory: {} MB", total_available / (1024 * 1024));
+    
     // Initialize the page allocator
     PAGE_ALLOCATOR.init(max_addr, mmap_tag);
+    
+    println!("Page allocator initialized");
 }
 
 /// Get a reference to the global page allocator
@@ -60,8 +78,12 @@ unsafe impl GlobalAlloc for SimpleAllocator {
         // For allocations up to 4KB, allocate a 4KB page
         if layout.size() <= 4096 {
             match PAGE_ALLOCATOR.allocate_page(PageSize::Size4KB) {
-                Some(addr) => addr as *mut u8,
-                None => null_mut(),
+                Some(addr) => {
+                    addr as *mut u8
+                }
+                None => {
+                    null_mut()
+                }
             }
         } 
         // For allocations larger than 4KB but less than 2MB, allocate multiple 4KB pages
