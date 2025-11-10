@@ -245,10 +245,11 @@ impl PageAllocator {
             
             drop(head);
             
-            // Update superpage counter
+            // Update superpage counter - decrement ONLY if counter > 0
+            // This tracks pages that came from a split 2MB page
             let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
-            if sp_head < pages.len() {
-                pages[sp_head].counter = pages[sp_head].counter.saturating_sub(1);
+            if sp_head < pages.len() && pages[sp_head].counter > 0 {
+                pages[sp_head].counter = pages[sp_head].counter - 1;
             }
             
             return Some(pfn * PAGE_SIZE_4KB);
@@ -305,9 +306,11 @@ impl PageAllocator {
         // Convert to 4KB pages and add to 4KB list
         let mut head_4kb = self.free_4kb_list.lock();
         
-        // IMPORTANT: Set counter to 0 since we're about to allocate pages from this split
-        // When pages are freed back, the counter will increment from 0
-        pages[pfn].counter = 0;
+        // Set counter to 512 - all pages from this split are free
+        // As they get allocated, counter decrements
+        // When freed back, counter increments
+        // When counter reaches 512 again, we merge
+        pages[pfn].counter = PAGES_PER_2MB as u16;
         
         for i in 0..PAGES_PER_2MB {
             let p = pfn + i;
@@ -352,9 +355,8 @@ impl PageAllocator {
         // Update superpage counter (only on superpage head)
         let sp_head = (pfn / PAGES_PER_2MB) * PAGES_PER_2MB;
         let can_merge = if sp_head < pages.len() {
-            // Only track counter on the superpage head page
             // Increment the counter for this free
-            pages[sp_head].counter = pages[sp_head].counter.saturating_add(1);
+            pages[sp_head].counter = pages[sp_head].counter + 1;
             pages[sp_head].counter == PAGES_PER_2MB as u16
         } else {
             false
