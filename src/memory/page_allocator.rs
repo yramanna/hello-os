@@ -305,8 +305,9 @@ impl PageAllocator {
         // Convert to 4KB pages and add to 4KB list
         let mut head_4kb = self.free_4kb_list.lock();
         
-        // Set up the first page with counter tracking
-        pages[pfn].counter = PAGES_PER_2MB as u16;
+        // IMPORTANT: Set counter to 0 since we're about to allocate pages from this split
+        // When pages are freed back, the counter will increment from 0
+        pages[pfn].counter = 0;
         
         for i in 0..PAGES_PER_2MB {
             let p = pfn + i;
@@ -409,31 +410,49 @@ impl PageAllocator {
         let page_guard = self.page_array.lock();
         let pages = page_guard.as_slice();
         
-        // Check all pages are free
+        // Verify counter says all pages are free
+        if pages[sp_head].counter != PAGES_PER_2MB as u16 {
+            return;
+        }
+        
+        // Check all pages are actually free in the state
         for i in 0..PAGES_PER_2MB {
-            if pages[sp_head + i].state != PageState::Free4KB {
+            let idx = sp_head + i;
+            if idx >= pages.len() || pages[idx].state != PageState::Free4KB {
                 return;
             }
         }
         
         // Remove all from 4KB list
+        let mut head_guard = self.free_4kb_list.lock();
         for i in 0..PAGES_PER_2MB {
             let p = sp_head + i;
             let prev = pages[p].prev;
             let next = pages[p].next;
             
             if let Some(prev_p) = prev {
-                pages[prev_p].next = next;
+                if prev_p < pages.len() {
+                    pages[prev_p].next = next;
+                }
             } else {
-                *self.free_4kb_list.lock() = next;
+                // This page was the head of the list
+                *head_guard = next;
             }
             
             if let Some(next_p) = next {
-                pages[next_p].prev = prev;
+                if next_p < pages.len() {
+                    pages[next_p].prev = prev;
+                }
             }
             
             pages[p].next = None;
             pages[p].prev = None;
+        }
+        drop(head_guard);
+        
+        // Mark non-head pages as unavailable (part of 2MB page)
+        for i in 1..PAGES_PER_2MB {
+            pages[sp_head + i].state = PageState::Unavailable;
         }
         
         // Add as 2MB page
@@ -445,7 +464,9 @@ impl PageAllocator {
         pages[sp_head].prev = None;
         
         if let Some(old) = *head {
-            pages[old].prev = Some(sp_head);
+            if old < pages.len() {
+                pages[old].prev = Some(sp_head);
+            }
         }
         *head = Some(sp_head);
     }
