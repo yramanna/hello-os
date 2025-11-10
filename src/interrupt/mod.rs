@@ -207,13 +207,6 @@ unsafe extern "C" fn breakpoint(regs: &mut InterruptStackFrame) {
 unsafe extern "C" fn timer(regs: &mut InterruptStackFrame) {
     use crate::interrupt::{lapic, Cycles};
     lapic::set_timer(Cycles(100_000)); 
-    // Print a dot for each timer interrupt
-    use x86::io::outb;
-    const SERIAL_PORT: u16 = 0x3f8;
-    unsafe {
-        outb(SERIAL_PORT, b'.');
-    }
-    
     // Acknowledge the interrupt
     lapic::end_of_interrupt();
 }
